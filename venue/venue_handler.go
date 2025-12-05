@@ -334,3 +334,31 @@ func UpdateVenueHandler(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{"message": "Venue updated successfully"})
 }
+
+
+// venue/venue_handler.go
+
+// ReplyReviewHandler handles POST /api/v1/reviews/:id/reply
+func ReplyReviewHandler(c *gin.Context) {
+	reviewID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid review ID"})
+		return
+	}
+
+	var req struct {
+		Reply string `json:"reply" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Reply content is required"})
+		return
+	}
+
+	err = ReplyToReview(reviewID, req.Reply)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save reply"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "Reply posted successfully"})
+}

@@ -170,3 +170,8 @@ func VerifyVenueOwnership(venueID int64, userID int64) error {
 func GetVenueIdFromPhoto(photoID int64) (int64, error) {
 	return GetVenueIDByPhotoID(photoID)
 }
+
+func ReplyToReview(reviewID int64, reply string) error {
+	// TODO: Check if the logged-in user actually owns the venue this review belongs to
+	return AddReviewReply(reviewID, reply)
+}

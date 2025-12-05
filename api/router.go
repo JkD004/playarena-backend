@@ -3,11 +3,12 @@ package api
 
 import (
 	"github.com/JkD004/playarena-backend/booking"
+	"github.com/JkD004/playarena-backend/notification"
 	"github.com/JkD004/playarena-backend/team"
 	"github.com/JkD004/playarena-backend/user"
 	"github.com/JkD004/playarena-backend/venue"
 	"github.com/gin-gonic/gin"
-	"github.com/JkD004/playarena-backend/notification"
+	"github.com/JkD004/playarena-backend/settings"
 )
 
 func SetupRoutes(router *gin.Engine) {
@@ -73,6 +74,21 @@ func SetupRoutes(router *gin.Engine) {
 		v1.GET("/notifications", AuthMiddleware("player", "owner", "admin"), notification.GetMyNotificationsHandler)
 		v1.PATCH("/notifications/:id/read", AuthMiddleware("player", "owner", "admin"), notification.MarkReadHandler)
 		v1.GET("/venues/:id/slots", booking.GetBookedSlotsHandler)
+
+		v1.POST("/reviews/:id/reply", AuthMiddleware("owner", "admin"), venue.ReplyReviewHandler)
+
+		// Inside v1 group -> Admin-Only Routes
+		v1.GET("/admin/users", AuthMiddleware("admin"), user.GetAllUsersHandler)
+		v1.DELETE("/admin/users/:id", AuthMiddleware("admin"), user.DeleteUserHandler)
+		v1.PATCH("/admin/users/:id/role", AuthMiddleware("admin"), user.UpdateUserRoleHandler)
+
+		// --- Public Routes ---
+    v1.GET("/terms", settings.GetTermsHandler) // Public access to terms
+
+    // --- Admin-Only Routes ---
+    v1.PUT("/admin/terms", AuthMiddleware("admin"), settings.UpdateTermsHandler) // Admin update
+
+	v1.PATCH("/owner/bookings/:id/status", AuthMiddleware("owner", "admin"), booking.ManageBookingHandler)
 
 	}
 }

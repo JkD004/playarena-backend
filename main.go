@@ -2,6 +2,8 @@ package main
 
 import (
 	"log"
+	
+	"time" // Added for time.Sleep
 
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
@@ -23,34 +25,50 @@ func main() {
 		log.Println("⚠️  Warning: .env file not found, continuing...")
 	}
 
-	// ✅ Initialize Database
-	db.InitDB()
+	// ✅ Initialize Database with Retry Logic (CRITICAL FIX)
+	const maxRetries = 15 // Increased retries for slow DB initialization
+	for i := 0; i < maxRetries; i++ {
+		log.Printf("Attempting to connect to DB... (Attempt %d/%d)", i+1, maxRetries)
+		// Assuming db.InitDB() now returns an error instead of calling log.Fatal
+		if err := db.InitDB(); err == nil {
+			log.Println("✅ Database connection established and initialized.")
+			break // Success, exit loop
+		}
+
+		if i == maxRetries-1 {
+			log.Fatal("❌ Failed to connect to database after multiple retries. Exiting.")
+		}
+
+		// Exponential backoff: 1s, 2s, 4s, 8s...
+		wait := time.Duration(1<<(i)) * time.Second
+		if wait > 30*time.Second { // Cap waiting time
+			wait = 30 * time.Second
+		}
+		log.Printf("Database not ready, waiting for %v before retrying...", wait)
+		time.Sleep(wait)
+	}
+
+	// The rest of the application setup relies on the database being connected successfully.
 
 	// ✅ Initialize Cloudinary
 	cld, err := cloudinary.New()
 	if err != nil {
+		// Log.Fatal will exit the application if Cloudinary fails, which is correct behavior.
 		log.Fatalf("❌ Failed to initialize Cloudinary: %v", err)
 	}
 
-	// ✅ Pass Cloudinary into Venue module
+	// ✅ Pass Cloudinary into relevant modules
 	venue.SetCloudinary(cld)
 	user.SetCloudinary(cld)
 
 	// ✅ Setup Gin Router
 	router := gin.Default()
 
-	// ✅ CORS Configuration (THE FIX)
+	// ✅ CORS Configuration
 	config := cors.DefaultConfig()
-	
-	// Change 1: Allow ALL origins to stop the 403 errors
 	config.AllowAllOrigins = true 
-	
-	// Change 2: Explicitly allow all the methods we are using
 	config.AllowMethods = []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"}
-	
-	// Change 3: Allow headers for file uploads and auth
 	config.AllowHeaders = []string{"Origin", "Content-Type", "Accept", "Authorization"}
-	
 	router.Use(cors.New(config))
 
 	// ✅ Set up routes

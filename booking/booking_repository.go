@@ -34,23 +34,24 @@ func CreateBooking(booking *Booking) error {
 	return nil
 }
 
-// IsSlotAvailable checks for overlapping confirmed bookings
+// IsSlotAvailable checks for overlapping bookings
 func IsSlotAvailable(venueID int64, startTime, endTime time.Time) (bool, error) {
 	var count int
+    // FIX: Only block slots that are 'confirmed' or 'present'.
+    // 'canceled' AND 'absent' slots should be ignored (available).
 	query := `
 		SELECT COUNT(*) FROM bookings
 		WHERE venue_id = ?
-		AND status = 'confirmed' 
+		AND status IN ('confirmed', 'present') 
 		AND start_time < ?
 		AND end_time > ?
 	`
-
+	
 	err := db.DB.QueryRow(query, venueID, endTime, startTime).Scan(&count)
 	if err != nil {
 		log.Println("Error checking slot availability:", err)
 		return false, err
 	}
-	// If count is 0, the slot is available
 	return count == 0, nil
 }
 
@@ -226,13 +227,16 @@ func FindAllBookings() ([]AdminBookingView, error) {
 
 // GetOwnerBookingStats calculates total bookings and revenue for an owner
 func GetOwnerBookingStats(ownerID int64, venueID int64) (int64, float64, error) {
+	// FIX: Count confirmed, present, AND absent bookings
 	query := `
 		SELECT 
 			COUNT(b.id), 
 			COALESCE(SUM(b.total_price), 0)
 		FROM bookings b
 		JOIN venues v ON b.venue_id = v.id
-		WHERE v.owner_id = ? AND b.status = 'confirmed' AND v.id = ?
+		WHERE v.owner_id = ? 
+        AND b.status IN ('confirmed', 'present', 'absent') 
+        AND v.id = ?
 	`
 	
 	var totalBookings int64
@@ -454,15 +458,15 @@ func FindBookingByID(bookingID int64) (*Booking, error) {
 	return &b, nil
 }
 
-// --- FIX: Simplified Query for GetBookedSlotsForDate ---
-// GetBookedSlotsForDate fetches confirmed bookings for a specific venue and date
+// GetBookedSlotsForDate fetches confirmed OR present bookings
 func GetBookedSlotsForDate(venueID int64, dateStr string) ([]BookedSlot, error) {
+	// FIX: Updated query to include 'present' status
 	query := `
 		SELECT start_time, end_time 
 		FROM bookings 
 		WHERE venue_id = ? 
 		AND DATE(start_time) = ? 
-		AND status = 'confirmed'
+		AND status IN ('confirmed', 'present')
 	`
 	
 	rows, err := db.DB.Query(query, venueID, dateStr)
@@ -485,4 +489,41 @@ func GetBookedSlotsForDate(venueID int64, dateStr string) ([]BookedSlot, error) 
 		slots = make([]BookedSlot, 0)
 	}
 	return slots, nil
+}
+
+// UpdateBookingStatusByOwner updates status if the requester owns the venue
+func UpdateBookingStatusByOwner(bookingID int64, ownerID int64, newStatus string) error {
+	// We use a JOIN to verify the link between Booking -> Venue -> Owner
+	query := `
+		UPDATE bookings b
+		JOIN venues v ON b.venue_id = v.id
+		SET b.status = ?
+		WHERE b.id = ? AND v.owner_id = ?
+	`
+	
+	result, err := db.DB.Exec(query, newStatus, bookingID, ownerID)
+	if err != nil {
+		log.Println("Error updating booking by owner:", err)
+		return err
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+
+	if rowsAffected == 0 {
+		return errors.New("booking not found or you do not own this venue")
+	}
+	return nil
+}
+// UpdateBookingStatusDirect allows admins to update status without ownership check
+func UpdateBookingStatusDirect(bookingID int64, newStatus string) error {
+	query := `UPDATE bookings SET status = ? WHERE id = ?`
+	_, err := db.DB.Exec(query, newStatus, bookingID)
+	if err != nil {
+		log.Println("Error updating booking directly:", err)
+		return err
+	}
+	return nil
 }

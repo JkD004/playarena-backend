@@ -3,9 +3,10 @@ package venue
 
 import (
 	"database/sql"
-	"log"
-	"github.com/JkD004/playarena-backend/db"
 	"errors"
+	"github.com/JkD004/playarena-backend/db"
+	"log"
+	"time"
 )
 
 // CreateVenue inserts a new venue into the database
@@ -16,10 +17,14 @@ func CreateVenue(venue *Venue) error {
 	`
 	// Handle nullable lunch times
 	var lunchStart, lunchEnd sql.NullString
-	if venue.LunchStart != "" { lunchStart = sql.NullString{String: venue.LunchStart, Valid: true} }
-	if venue.LunchEnd != "" { lunchEnd = sql.NullString{String: venue.LunchEnd, Valid: true} }
+	if venue.LunchStart != "" {
+		lunchStart = sql.NullString{String: venue.LunchStart, Valid: true}
+	}
+	if venue.LunchEnd != "" {
+		lunchEnd = sql.NullString{String: venue.LunchEnd, Valid: true}
+	}
 
-	result, err := db.DB.Exec(query, 
+	result, err := db.DB.Exec(query,
 		venue.OwnerID, venue.Name, venue.SportCategory, venue.Description, venue.Address, venue.PricePerHour,
 		venue.OpeningTime, venue.ClosingTime, lunchStart, lunchEnd,
 	)
@@ -55,23 +60,26 @@ func FindVenuesByStatus(status string) ([]Venue, error) {
 		FROM venues WHERE status = ?
 	`
 	rows, err := db.DB.Query(query, status)
-	if err != nil { return nil, err }
+	if err != nil {
+		return nil, err
+	}
 	defer rows.Close()
 
 	venues := make([]Venue, 0)
 	for rows.Next() {
 		v, err := scanVenue(rows)
-		if err == nil { venues = append(venues, *v) }
+		if err == nil {
+			venues = append(venues, *v)
+		}
 	}
 	return venues, nil
 }
-
 
 // UpdateVenueStatusInDB updates the status of a specific venue by its ID
 // UpdateVenueStatusInDB updates the status using a transaction
 func UpdateVenueStatusInDB(tx *sql.Tx, venueID int64, newStatus string) error {
 	query := "UPDATE venues SET status = ? WHERE id = ?"
-	
+
 	_, err := tx.Exec(query, newStatus, venueID)
 	if err != nil {
 		log.Println("Error updating venue status:", err)
@@ -88,13 +96,16 @@ func FindApprovedVenueByID(venueID int64) (*Venue, error) {
 		WHERE id = ? AND status = 'approved'
 	`
 	rows, err := db.DB.Query(query, venueID)
-	if err != nil { return nil, err }
+	if err != nil {
+		return nil, err
+	}
 	defer rows.Close()
 
-	if rows.Next() { return scanVenue(rows) }
+	if rows.Next() {
+		return scanVenue(rows)
+	}
 	return nil, sql.ErrNoRows
 }
-
 
 func FindApprovedVenues() ([]Venue, error) {
 	return FindVenuesByStatus("approved")
@@ -103,7 +114,7 @@ func FindApprovedVenues() ([]Venue, error) {
 // GetPhotosByVenueID fetches all photos for a specific venue
 func GetPhotosByVenueID(venueID int64) ([]VenuePhoto, error) {
 	query := `SELECT id, venue_id, image_url, created_at FROM venue_photos WHERE venue_id = ?`
-	
+
 	rows, err := db.DB.Query(query, venueID)
 	if err != nil {
 		log.Println("Error fetching venue photos:", err)
@@ -147,17 +158,20 @@ func FindVenuesByOwnerID(ownerID int64) ([]Venue, error) {
 		FROM venues WHERE owner_id = ?
 	`
 	rows, err := db.DB.Query(query, ownerID)
-	if err != nil { return nil, err }
+	if err != nil {
+		return nil, err
+	}
 	defer rows.Close()
 
 	venues := make([]Venue, 0)
 	for rows.Next() {
 		v, err := scanVenue(rows)
-		if err == nil { venues = append(venues, *v) }
+		if err == nil {
+			venues = append(venues, *v)
+		}
 	}
 	return venues, nil
 }
-
 
 // venue/venue_repository.go
 // ... (keep existing functions)
@@ -173,10 +187,24 @@ func CreateReview(review *Review) error {
 	return nil
 }
 
-// GetReviewsByVenueID fetches all reviews for a venue with user names
+// AddReviewReply updates a review with an owner's reply
+func AddReviewReply(reviewID int64, reply string) error {
+	query := `UPDATE reviews SET reply = ?, replied_at = ? WHERE id = ?`
+	_, err := db.DB.Exec(query, reply, time.Now(), reviewID)
+	if err != nil {
+		log.Println("Error adding review reply:", err)
+		return err
+	}
+	return nil
+}
+
+// GetReviewsByVenueID (Update this existing function to scan the new columns!)
 func GetReviewsByVenueID(venueID int64) ([]Review, error) {
+	// Updated query to select reply fields
 	query := `
-		SELECT r.id, r.venue_id, r.user_id, u.first_name, u.last_name, r.rating, r.comment, r.created_at
+		SELECT r.id, r.venue_id, r.user_id, u.first_name, u.last_name, 
+		       r.rating, r.comment, r.created_at, 
+		       COALESCE(r.reply, ''), r.replied_at
 		FROM reviews r
 		JOIN users u ON r.user_id = u.id
 		WHERE r.venue_id = ?
@@ -184,7 +212,6 @@ func GetReviewsByVenueID(venueID int64) ([]Review, error) {
 	`
 	rows, err := db.DB.Query(query, venueID)
 	if err != nil {
-		log.Println("Error fetching reviews:", err)
 		return nil, err
 	}
 	defer rows.Close()
@@ -192,18 +219,28 @@ func GetReviewsByVenueID(venueID int64) ([]Review, error) {
 	var reviews []Review
 	for rows.Next() {
 		var r Review
-		if err := rows.Scan(&r.ID, &r.VenueID, &r.UserID, &r.UserFirst, &r.UserLast, &r.Rating, &r.Comment, &r.CreatedAt); err != nil {
+		var repliedAt sql.NullTime // Handle nullable time
+
+		// Updated Scan
+		if err := rows.Scan(
+			&r.ID, &r.VenueID, &r.UserID, &r.UserFirst, &r.UserLast,
+			&r.Rating, &r.Comment, &r.CreatedAt,
+			&r.Reply, &repliedAt,
+		); err != nil {
 			continue
+		}
+
+		if repliedAt.Valid {
+			r.RepliedAt = repliedAt.Time
 		}
 		reviews = append(reviews, r)
 	}
-	
+	// ... (return)
 	if reviews == nil {
 		reviews = make([]Review, 0)
 	}
 	return reviews, nil
 }
-
 
 // UpdateVenueDetails updates the text fields of a venue
 func UpdateVenueDetails(venue *Venue) error {
@@ -213,12 +250,16 @@ func UpdateVenueDetails(venue *Venue) error {
 		    opening_time = ?, closing_time = ?, lunch_start_time = ?, lunch_end_time = ?
 		WHERE id = ?
 	`
-	
-	var lunchStart, lunchEnd sql.NullString
-	if venue.LunchStart != "" { lunchStart = sql.NullString{String: venue.LunchStart, Valid: true} }
-	if venue.LunchEnd != "" { lunchEnd = sql.NullString{String: venue.LunchEnd, Valid: true} }
 
-	_, err := db.DB.Exec(query, 
+	var lunchStart, lunchEnd sql.NullString
+	if venue.LunchStart != "" {
+		lunchStart = sql.NullString{String: venue.LunchStart, Valid: true}
+	}
+	if venue.LunchEnd != "" {
+		lunchEnd = sql.NullString{String: venue.LunchEnd, Valid: true}
+	}
+
+	_, err := db.DB.Exec(query,
 		venue.Name, venue.SportCategory, venue.Description, venue.Address, venue.PricePerHour,
 		venue.OpeningTime, venue.ClosingTime, lunchStart, lunchEnd,
 		venue.ID,
@@ -237,20 +278,24 @@ func scanVenue(rows *sql.Rows) (*Venue, error) {
 	var created sql.NullTime
 
 	err := rows.Scan(
-		&v.ID, &v.OwnerID, &v.Status, &v.Name, &v.SportCategory, 
+		&v.ID, &v.OwnerID, &v.Status, &v.Name, &v.SportCategory,
 		&desc, &addr, &price,
 		&v.OpeningTime, &v.ClosingTime, &lStart, &lEnd,
 		&created,
 	)
-	if err != nil { return nil, err }
+	if err != nil {
+		return nil, err
+	}
 
 	v.Description = desc.String
 	v.Address = addr.String
 	v.PricePerHour = price.Float64
 	v.LunchStart = lStart.String
 	v.LunchEnd = lEnd.String
-	if created.Valid { v.CreatedAt = created.Time }
-	
+	if created.Valid {
+		v.CreatedAt = created.Time
+	}
+
 	return &v, nil
 }
 
@@ -264,6 +309,7 @@ func IsVenueOwner(venueID int64, ownerID int64) (bool, error) {
 	}
 	return count > 0, nil
 }
+
 // venue/venue_repository.go
 
 // GetVenueIDByPhotoID finds the venue associated with a photo

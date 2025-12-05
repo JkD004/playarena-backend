@@ -130,3 +130,51 @@ func UpdateUserAvatar(userID int64, url string) error {
 	}
 	return nil
 }
+
+// FindAllUsers fetches every user in the database
+func FindAllUsers() ([]User, error) {
+	// We exclude password_hash for security
+	query := `
+		SELECT id, first_name, last_name, email, phone, dob, address, role, created_at, COALESCE(avatar_url, '')
+		FROM users
+		ORDER BY created_at DESC
+	`
+	rows, err := db.DB.Query(query)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var users []User
+	for rows.Next() {
+		var u User
+		if err := rows.Scan(
+			&u.ID, &u.FirstName, &u.LastName, &u.Email, 
+			&u.Phone, &u.DOB, &u.Address, 
+			&u.Role, &u.CreatedAt, &u.AvatarURL,
+		); err != nil {
+			continue
+		}
+		users = append(users, u)
+	}
+	
+	if users == nil {
+		users = make([]User, 0)
+	}
+	return users, nil
+}
+
+// DeleteUser permanently removes a user
+func DeleteUser(userID int64) error {
+	query := `DELETE FROM users WHERE id = ?`
+	_, err := db.DB.Exec(query, userID)
+	return err
+}
+
+// UpdateUserRoleByID directly updates a role (wrapper for existing logic if needed, 
+// but we can reuse UpdateUserRole if we have a transaction, or just run a simple query here)
+func UpdateUserRoleByID(userID int64, newRole string) error {
+	query := `UPDATE users SET role = ? WHERE id = ?`
+	_, err := db.DB.Exec(query, newRole, userID)
+	return err
+}

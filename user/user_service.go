@@ -113,3 +113,17 @@ func GetUserByEmail(email string) (*User, error) {
 func UpdateAvatar(userID int64, url string) error {
 	return UpdateUserAvatar(userID, url)
 }
+
+// user/user_service.go
+
+func GetAllUsers() ([]User, error) {
+	return FindAllUsers()
+}
+
+func RemoveUser(userID int64) error {
+	return DeleteUser(userID)
+}
+
+func ChangeUserRole(userID int64, newRole string) error {
+	return UpdateUserRoleByID(userID, newRole)
+}

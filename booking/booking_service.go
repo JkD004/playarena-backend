@@ -35,6 +35,10 @@ func CreateNewBooking(req *CreateBookingRequest, userID int64) (*Booking, error)
 		return nil, errors.New("this time slot is no longer available")
 	}
 
+	if req.StartTime.Before(time.Now().Add(-2 * time.Minute)) {
+		return nil, errors.New("cannot book a time slot in the past")
+	}
+
 	// 5. Create Booking Object
 	newBooking := &Booking{
 		UserID:     userID,
@@ -120,7 +124,30 @@ func GetBookingsForUser(userID int64) ([]Booking, error) {
 
 // CancelBooking handles the logic for canceling a booking
 func CancelBooking(bookingID int64, userID int64) error {
-	return UpdateBookingStatus(bookingID, userID, "canceled")
+	// 1. Fetch the booking to check its details
+	booking, err := FindBookingByID(bookingID)
+	if err != nil {
+		return errors.New("booking not found")
+	}
+
+	// 2. POLICY CHECK: Cannot cancel past/started bookings
+	// We add a small buffer (e.g., can't cancel if it starts in less than 1 hour)
+	// For now, let's just say "cannot cancel if already started"
+	if time.Now().After(booking.StartTime) {
+		return errors.New("cannot cancel a booking that has already started")
+	}
+
+    // 3. Update the status in the database
+	err = UpdateBookingStatus(bookingID, userID, "canceled")
+	if err != nil {
+		return err
+	}
+
+	// 4. Send Notification
+	message := "Your booking has been successfully canceled. A refund will be processed within 5-7 days."
+	_ = notification.CreateNotification(userID, message, "warning")
+
+	return nil
 }
 
 // GetBookingsForVenue is the service-layer function
@@ -189,3 +216,20 @@ func GetGroupedVenueStats() ([]VenueStats, error) {
 func init() {
 	_ = time.Duration(0)
 }
+
+// ManageBookingAttendance handles owner/admin actions
+// Added 'userRole' parameter
+func ManageBookingAttendance(bookingID int64, userID int64, userRole string, status string) error {
+	// Validate status
+	if status != "present" && status != "absent" && status != "canceled" {
+		return errors.New("invalid status update")
+	}
+
+	// Logic: If Admin, bypass ownership check. If Owner, enforce it.
+	if userRole == "admin" {
+		return UpdateBookingStatusDirect(bookingID, status)
+	} else {
+		return UpdateBookingStatusByOwner(bookingID, userID, status)
+	}
+}
+

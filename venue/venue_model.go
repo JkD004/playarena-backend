@@ -17,6 +17,7 @@ type Venue struct {
 	LunchStart    string    `json:"lunch_start_time,omitempty"`
 	LunchEnd      string    `json:"lunch_end_time,omitempty"`
 	CreatedAt     time.Time `json:"created_at"`
+	
 }
 // VenuePhoto defines the data structure for a photo
 type VenuePhoto struct {
@@ -37,4 +38,6 @@ type Review struct {
 	Rating    int       `json:"rating"`
 	Comment   string    `json:"comment"`
 	CreatedAt time.Time `json:"created_at"`
+	Reply     string    `json:"reply,omitempty"`      // <-- NEW
+    RepliedAt time.Time `json:"replied_at,omitempty"`
 }

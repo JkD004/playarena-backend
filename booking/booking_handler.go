@@ -235,3 +235,32 @@ func GetBookedSlotsHandler(c *gin.Context) {
 
 	c.JSON(http.StatusOK, slots)
 }
+
+// ManageBookingHandler handles PATCH /api/v1/owner/bookings/:id/status
+func ManageBookingHandler(c *gin.Context) {
+	bookingID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid booking ID"})
+		return
+	}
+
+	userID := c.MustGet("userID").(int64)
+	userRole := c.MustGet("userRole").(string) // <-- Get Role
+
+	var req struct {
+		Status string `json:"status" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Status is required"})
+		return
+	}
+
+	// Pass userRole to service
+	err = ManageBookingAttendance(bookingID, userID, userRole, req.Status)
+	if err != nil {
+		c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "Booking status updated successfully"})
+}

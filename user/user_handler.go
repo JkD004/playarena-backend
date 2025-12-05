@@ -3,7 +3,7 @@ package user
 import (
 	"context" // <-- Add this
 	"net/http"
-
+	"strconv"
 	"github.com/gin-gonic/gin"
 	"github.com/cloudinary/cloudinary-go/v2" // <-- Add this
 	"github.com/cloudinary/cloudinary-go/v2/api/uploader" // <-- Add this
@@ -134,4 +134,54 @@ func UploadProfilePicHandler(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "Avatar updated", "url": imageURL})
+}
+
+// GetAllUsersHandler handles GET /api/v1/admin/users
+func GetAllUsersHandler(c *gin.Context) {
+	users, err := GetAllUsers()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Could not fetch users"})
+		return
+	}
+	c.JSON(http.StatusOK, users)
+}
+
+// DeleteUserHandler handles DELETE /api/v1/admin/users/:id
+func DeleteUserHandler(c *gin.Context) {
+	userID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid user ID"})
+		return
+	}
+
+	err = RemoveUser(userID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete user"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "User deleted successfully"})
+}
+
+// UpdateUserRoleHandler handles PATCH /api/v1/admin/users/:id/role
+func UpdateUserRoleHandler(c *gin.Context) {
+	userID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid user ID"})
+		return
+	}
+
+	var req struct {
+		Role string `json:"role" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Role is required"})
+		return
+	}
+
+	err = ChangeUserRole(userID, req.Role)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update role"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "User role updated"})
 }
