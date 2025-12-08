@@ -161,24 +161,35 @@ func GetAllBookings() ([]AdminBookingView, error) {
 }
 
 // GetStatisticsForOwner is the service-layer function
-func GetStatisticsForOwner(ownerID int64, venueID int64) (*OwnerStats, error) {
-	bookings, revenue, err := GetOwnerBookingStats(ownerID, venueID)
-	if err != nil {
-		return nil, err
+// GetStatisticsForOwnerOrAdmin handles logic for both roles
+func GetStatisticsForOwner(userID int64, venueID int64, userRole string) (*OwnerStats, error) {
+	var bookings int64
+	var revenue float64
+	var popTime string
+	var err error
+
+	if userRole == "admin" {
+		// Admin: Fetch stats without checking owner_id
+		bookings, revenue, err = GetVenueStatsSimple(venueID)
+        if err != nil { return nil, err }
+        
+		popTime, err = GetVenuePopularTimeSimple(venueID)
+        if err != nil { return nil, err }
+
+	} else {
+		// Owner: Enforce owner_id check
+		bookings, revenue, err = GetOwnerBookingStats(userID, venueID)
+        if err != nil { return nil, err }
+        
+		popTime, err = GetOwnerPopularTime(userID, venueID)
+        if err != nil { return nil, err }
 	}
 
-	popTime, err := GetOwnerPopularTime(ownerID, venueID)
-	if err != nil {
-		return nil, err
-	}
-
-	stats := &OwnerStats{
+	return &OwnerStats{
 		TotalBookings: bookings,
 		TotalRevenue:  revenue,
 		PopularTime:   popTime,
-	}
-	
-	return stats, nil
+	}, nil
 }
 
 // GetStatisticsForAdmin is the service-layer function

@@ -2,10 +2,10 @@
 package booking
 
 import (
+	//"github.com/JkD004/playarena-backend/venue"
+	"github.com/gin-gonic/gin"
 	"net/http"
 	"strconv"
-	"github.com/JkD004/playarena-backend/venue"
-	"github.com/gin-gonic/gin"
 )
 
 // CreateBookingHandler handles POST requests to create a booking
@@ -77,7 +77,6 @@ func GetAllBookingsHandler(c *gin.Context) {
 	c.JSON(http.StatusOK, bookings)
 }
 
-
 // GetVenueBookingsHandler handles fetching all bookings for a specific venue
 func GetVenueBookingsHandler(c *gin.Context) {
 	venueID, err := strconv.ParseInt(c.Param("id"), 10, 64)
@@ -87,40 +86,29 @@ func GetVenueBookingsHandler(c *gin.Context) {
 	}
 
 	// TODO: Verify owner (from c.MustGet("userID")) owns this venueID
-	
+
 	bookings, err := GetBookingsForVenue(venueID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Could not fetch bookings"})
 		return
 	}
-	
+
 	c.JSON(http.StatusOK, bookings)
 }
-
 
 // GetOwnerStatsHandler handles fetching all stats for the logged-in owner
 func GetOwnerStatsHandler(c *gin.Context) {
 	userID := c.MustGet("userID").(int64)
-	userRole := c.MustGet("userRole").(string)
+	userRole := c.MustGet("userRole").(string) // <-- Get Role
 
 	venueID, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid venue ID"})
 		return
 	}
-	
-	// --- SECURITY CHECK ---
-	// If not admin, ensure the user actually owns this venue
-	if userRole != "admin" {
-		// We use the function exported from the venue package
-		if err := venue.VerifyVenueOwnership(venueID, userID); err != nil {
-			c.JSON(http.StatusForbidden, gin.H{"error": "You do not have permission to view these stats"})
-			return
-		}
-	}
-	// ----------------------
 
-	stats, err := GetStatisticsForOwner(userID, venueID)
+	// Pass role to service
+	stats, err := GetStatisticsForOwner(userID, venueID, userRole)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Could not calculate statistics"})
 		return
@@ -161,10 +149,10 @@ func BlockSlotHandler(c *gin.Context) {
 	userID := c.MustGet("userID").(int64)
 
 	// Call service (we reuse CreateNewBooking but with a flag or logic)
-    // Ideally, we create a specific service function for this.
-    // For simplicity, let's call a new service function:
-    err := BlockVenueSlot(&req, userID)
-    
+	// Ideally, we create a specific service function for this.
+	// For simplicity, let's call a new service function:
+	err := BlockVenueSlot(&req, userID)
+
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
@@ -172,7 +160,6 @@ func BlockSlotHandler(c *gin.Context) {
 
 	c.JSON(http.StatusCreated, gin.H{"message": "Slot blocked successfully"})
 }
-
 
 // booking/booking_handler.go
 
@@ -208,7 +195,6 @@ func ProcessPaymentHandler(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{"message": "Payment successful, booking confirmed!"})
 }
-
 
 // booking/booking_handler.go
 

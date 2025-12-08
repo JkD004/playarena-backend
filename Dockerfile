@@ -30,7 +30,7 @@ WORKDIR /root/
 # Copy the binary from the builder stage
 COPY --from=builder /app/main .
 # Copy the .env file so the app can read secrets
-COPY .env .
+#COPY .env .
 
 # Expose the port your app runs on
 EXPOSE 8080

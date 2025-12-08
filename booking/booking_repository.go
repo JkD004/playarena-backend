@@ -527,3 +527,62 @@ func UpdateBookingStatusDirect(bookingID int64, newStatus string) error {
 	}
 	return nil
 }
+
+// booking/booking_repository.go
+
+// GetVenueStatsSimple calculates stats for a venue (No owner check - for Admin)
+func GetVenueStatsSimple(venueID int64) (int64, float64, error) {
+	query := `
+		SELECT 
+			COUNT(id), 
+			COALESCE(SUM(total_price), 0)
+		FROM bookings
+		WHERE venue_id = ? 
+        AND status IN ('confirmed', 'present', 'absent')
+	`
+	
+	var totalBookings int64
+	var totalRevenue float64
+	
+	err := db.DB.QueryRow(query, venueID).Scan(&totalBookings, &totalRevenue)
+	if err != nil {
+		log.Println("Error calculating venue stats:", err)
+		return 0, 0, err
+	}
+	
+	return totalBookings, totalRevenue, nil
+}
+
+// GetVenuePopularTimeSimple finds popular time for a venue (No owner check - for Admin)
+func GetVenuePopularTimeSimple(venueID int64) (string, error) {
+	query := `
+		SELECT 
+			HOUR(CONVERT_TZ(start_time, '+00:00', 'Asia/Kolkata')) as popular_hour, 
+			COUNT(id) as booking_count
+		FROM bookings
+		WHERE venue_id = ? 
+        AND status IN ('confirmed', 'present', 'absent')
+		GROUP BY popular_hour
+		ORDER BY booking_count DESC
+		LIMIT 1
+	`
+	
+	var popularHour sql.NullInt64 
+	var count int
+	
+	err := db.DB.QueryRow(query, venueID).Scan(&popularHour, &count)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return "--:--", nil
+		}
+		log.Println("Error calculating popular time:", err)
+		return "", err
+	}
+
+	if !popularHour.Valid {
+		return "--:--", nil
+	}
+
+	popularTime := time.Date(0, 1, 1, int(popularHour.Int64), 0, 0, 0, time.UTC)
+	return popularTime.Format("03:04 PM"), nil
+}
