@@ -322,3 +322,66 @@ func GetVenueIDByPhotoID(photoID int64) (int64, error) {
 	}
 	return venueID, nil
 }
+
+// venue/venue_repository.go
+
+// GetAllVenuesWithOwners fetches every venue + owner name (For Admin List)
+func GetAllVenuesWithOwners() ([]VenueAdminList, error) {
+	query := `
+		SELECT v.id, v.name, v.sport_category, v.status, CONCAT(u.first_name, ' ', u.last_name)
+		FROM venues v
+		JOIN users u ON v.owner_id = u.id
+		ORDER BY v.sport_category, v.name
+	`
+	rows, err := db.DB.Query(query)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var list []VenueAdminList
+	for rows.Next() {
+		var v VenueAdminList
+		if err := rows.Scan(&v.ID, &v.Name, &v.SportCategory, &v.Status, &v.OwnerName); err != nil {
+			continue
+		}
+		list = append(list, v)
+	}
+	return list, nil
+}
+
+// GetVenueFullDetailsForAdmin fetches Venue + Owner Info
+func GetVenueFullDetailsForAdmin(venueID int64) (*VenueAdminDetail, error) {
+	query := `
+		SELECT 
+			v.id, v.name, v.address, v.sport_category, v.price_per_hour, v.status,
+			u.id, CONCAT(u.first_name, ' ', u.last_name), u.email, COALESCE(u.phone, 'N/A')
+		FROM venues v
+		JOIN users u ON v.owner_id = u.id
+		WHERE v.id = ?
+	`
+	var d VenueAdminDetail
+	err := db.DB.QueryRow(query, venueID).Scan(
+		&d.VenueID, &d.Name, &d.Address, &d.SportCategory, &d.PricePerHour, &d.Status,
+		&d.OwnerID, &d.OwnerName, &d.OwnerEmail, &d.OwnerPhone,
+	)
+	if err != nil {
+		return nil, err
+	}
+	return &d, nil
+}
+// venue/venue_repository.go
+
+// DeleteVenue (Soft Delete) marks a venue as deleted so history is preserved
+func DeleteVenue(id int64) error {
+	query := `UPDATE venues SET status = 'deleted' WHERE id = ?`
+	result, err := db.DB.Exec(query, id)
+	if err != nil {
+		return err
+	}
+	rows, _ := result.RowsAffected()
+	if rows == 0 {
+		return errors.New("venue not found")
+	}
+	return nil
+}

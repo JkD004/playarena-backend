@@ -28,6 +28,32 @@ type VenuePhoto struct {
 }
 
 
+// venue/venue_model.go
+
+// VenueAdminList is for the main list view
+type VenueAdminList struct {
+	ID            int64  `json:"id"`
+	Name          string `json:"name"`
+	SportCategory string `json:"sport_category"`
+	Status        string `json:"status"`
+	OwnerName     string `json:"owner_name"`
+}
+
+// VenueAdminDetail contains everything about a venue
+type VenueAdminDetail struct {
+	VenueID       int64   `json:"venue_id"`
+	Name          string  `json:"name"`
+	Address       string  `json:"address"`
+	SportCategory string  `json:"sport_category"`
+	PricePerHour  float64 `json:"price_per_hour"`
+	Status        string  `json:"status"`
+	// Owner Details
+	OwnerID       int64   `json:"owner_id"`
+	OwnerName     string  `json:"owner_name"`
+	OwnerEmail    string  `json:"owner_email"`
+	OwnerPhone    string  `json:"owner_phone"`
+}
+
 
 type Review struct {
 	ID        int64     `json:"id"`

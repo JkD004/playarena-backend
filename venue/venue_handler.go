@@ -362,3 +362,43 @@ func ReplyReviewHandler(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{"message": "Reply posted successfully"})
 }
+
+// venue/venue_handler.go
+
+// AdminGetAllVenuesHandler handles listing all venues
+func AdminGetAllVenuesHandler(c *gin.Context) {
+	venues, err := GetAllVenuesWithOwners()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch venues"})
+		return
+	}
+	c.JSON(http.StatusOK, venues)
+}
+
+// AdminGetVenueDetailHandler handles full venue details
+func AdminGetVenueDetailHandler(c *gin.Context) {
+	id, _ := strconv.ParseInt(c.Param("id"), 10, 64)
+	details, err := GetVenueFullDetailsForAdmin(id)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Venue not found"})
+		return
+	}
+	c.JSON(http.StatusOK, details)
+}
+// venue/venue_handler.go
+
+// AdminDeleteVenueHandler handles soft deleting a venue
+func AdminDeleteVenueHandler(c *gin.Context) {
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid ID"})
+		return
+	}
+
+	if err := DeleteVenue(id); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete venue"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "Venue deleted successfully"})
+}

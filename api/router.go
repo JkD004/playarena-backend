@@ -4,11 +4,12 @@ package api
 import (
 	"github.com/JkD004/playarena-backend/booking"
 	"github.com/JkD004/playarena-backend/notification"
+	"github.com/JkD004/playarena-backend/payment"
+	"github.com/JkD004/playarena-backend/settings"
 	"github.com/JkD004/playarena-backend/team"
 	"github.com/JkD004/playarena-backend/user"
 	"github.com/JkD004/playarena-backend/venue"
 	"github.com/gin-gonic/gin"
-	"github.com/JkD004/playarena-backend/settings"
 )
 
 func SetupRoutes(router *gin.Engine) {
@@ -83,12 +84,31 @@ func SetupRoutes(router *gin.Engine) {
 		v1.PATCH("/admin/users/:id/role", AuthMiddleware("admin"), user.UpdateUserRoleHandler)
 
 		// --- Public Routes ---
-    v1.GET("/terms", settings.GetTermsHandler) // Public access to terms
+		v1.GET("/terms", settings.GetTermsHandler) // Public access to terms
 
-    // --- Admin-Only Routes ---
-    v1.PUT("/admin/terms", AuthMiddleware("admin"), settings.UpdateTermsHandler) // Admin update
+		// --- Admin-Only Routes ---
+		v1.PUT("/admin/terms", AuthMiddleware("admin"), settings.UpdateTermsHandler) // Admin update
 
-	v1.PATCH("/owner/bookings/:id/status", AuthMiddleware("owner", "admin"), booking.ManageBookingHandler)
+		v1.PATCH("/owner/bookings/:id/status", AuthMiddleware("owner", "admin"), booking.ManageBookingHandler)
+
+		// === Payment Routes (Protected) ===
+		v1.POST("/payment/create-order/:id", AuthMiddleware("player", "owner", "admin"), payment.CreateOrderHandler)
+		v1.POST("/payment/verify", AuthMiddleware("player", "owner", "admin"), payment.VerifyPaymentHandler)
+
+		v1.GET("/owner/bookings/:id", AuthMiddleware("owner", "admin"), booking.GetSingleBookingOwnerHandler)
+
+		// Inside v1 group -> Owner Routes
+		v1.GET("/owner/stats/global", AuthMiddleware("owner"), booking.GetOwnerGlobalStatsHandler)
+
+		// Inside v1 group -> Admin Routes
+		v1.GET("/admin/stats/global", AuthMiddleware("admin"), booking.GetAdminGlobalStatsHandler)
+
+		v1.GET("/admin/stats/grouped", AuthMiddleware("admin"), booking.GetGroupedStatsHandler)
+
+		v1.GET("/admin/venues/all", AuthMiddleware("admin"), venue.AdminGetAllVenuesHandler)
+		v1.GET("/admin/venues/:id/details", AuthMiddleware("admin"), venue.AdminGetVenueDetailHandler)
+
+		v1.DELETE("/admin/venues/:id", AuthMiddleware("admin"), venue.AdminDeleteVenueHandler)
 
 	}
 }

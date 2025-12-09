@@ -14,6 +14,8 @@ import (
 	"github.com/JkD004/playarena-backend/db"
 	"github.com/JkD004/playarena-backend/venue"
 	"github.com/JkD004/playarena-backend/user"
+	"github.com/JkD004/playarena-backend/payment"
+	"github.com/JkD004/playarena-backend/worker"
 
 )
 
@@ -63,6 +65,13 @@ func main() {
 
 	// ✅ Setup Gin Router
 	router := gin.Default()
+
+	// ✅ Initialize Payment System
+    payment.InitRazorpay()
+
+	// 🚀 START BACKGROUND WORKER (Run in a separate goroutine)
+	go worker.StartCleanupTask()
+
 
 	// ✅ CORS Configuration
 	config := cors.DefaultConfig()

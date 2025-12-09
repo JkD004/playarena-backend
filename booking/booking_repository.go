@@ -37,8 +37,8 @@ func CreateBooking(booking *Booking) error {
 // IsSlotAvailable checks for overlapping bookings
 func IsSlotAvailable(venueID int64, startTime, endTime time.Time) (bool, error) {
 	var count int
-    // FIX: Only block slots that are 'confirmed' or 'present'.
-    // 'canceled' AND 'absent' slots should be ignored (available).
+	// FIX: Only block slots that are 'confirmed' or 'present'.
+	// 'canceled' AND 'absent' slots should be ignored (available).
 	query := `
 		SELECT COUNT(*) FROM bookings
 		WHERE venue_id = ?
@@ -46,7 +46,7 @@ func IsSlotAvailable(venueID int64, startTime, endTime time.Time) (bool, error) 
 		AND start_time < ?
 		AND end_time > ?
 	`
-	
+
 	err := db.DB.QueryRow(query, venueID, endTime, startTime).Scan(&count)
 	if err != nil {
 		log.Println("Error checking slot availability:", err)
@@ -55,16 +55,16 @@ func IsSlotAvailable(venueID int64, startTime, endTime time.Time) (bool, error) 
 	return count == 0, nil
 }
 
-// FindBookingsByUserID fetches all bookings for a specific user
+// FindBookingsByUserID fetches all bookings with full details (Venue + User)
 func FindBookingsByUserID(userID int64) ([]Booking, error) {
-	// JOIN venues to get Name and Sport
 	query := `
 		SELECT 
-			b.id, b.user_id, b.venue_id, 
-			v.name, v.sport_category, 
+			b.id, b.user_id, u.first_name, u.last_name,
+			b.venue_id, v.name, v.address, v.sport_category, 
 			b.start_time, b.end_time, b.total_price, b.status, b.created_at
 		FROM bookings b
 		JOIN venues v ON b.venue_id = v.id
+		JOIN users u ON b.user_id = u.id
 		WHERE b.user_id = ?
 		ORDER BY b.start_time DESC
 	`
@@ -79,12 +79,16 @@ func FindBookingsByUserID(userID int64) ([]Booking, error) {
 	bookings := make([]Booking, 0)
 	for rows.Next() {
 		var booking Booking
+		// Handle potential NULLs if necessary, but assuming required fields for now
 		if err := rows.Scan(
 			&booking.ID,
 			&booking.UserID,
+			&booking.UserFirstName, // <-- Scan First Name
+			&booking.UserLastName,  // <-- Scan Last Name
 			&booking.VenueID,
-			&booking.VenueName,     
-			&booking.SportCategory, 
+			&booking.VenueName,
+			&booking.VenueAddress, // <-- Scan Address
+			&booking.SportCategory,
 			&booking.StartTime,
 			&booking.EndTime,
 			&booking.TotalPrice,
@@ -97,9 +101,6 @@ func FindBookingsByUserID(userID int64) ([]Booking, error) {
 		bookings = append(bookings, booking)
 	}
 
-	if err = rows.Err(); err != nil {
-		return nil, err
-	}
 	return bookings, nil
 }
 
@@ -159,7 +160,7 @@ func FindBookingsByVenueID(venueID int64) ([]AdminBookingView, error) {
 			&b.UserID,
 			&b.UserFirstName,
 			&b.UserLastName,
-			&b.UserPhone, 
+			&b.UserPhone,
 			&b.StartTime,
 			&b.EndTime,
 			&b.TotalPrice,
@@ -225,32 +226,38 @@ func FindAllBookings() ([]AdminBookingView, error) {
 	return bookings, nil
 }
 
-// GetOwnerBookingStats calculates total bookings and revenue for an owner
-func GetOwnerBookingStats(ownerID int64, venueID int64) (int64, float64, error) {
-	// FIX: Count confirmed, present, AND absent bookings
+// GetOwnerBookingStats (For Owner - With Owner Check)
+func GetOwnerBookingStats(ownerID int64, venueID int64) (*OwnerStats, error) {
 	query := `
 		SELECT 
-			COUNT(b.id), 
-			COALESCE(SUM(b.total_price), 0)
+			COALESCE(SUM(CASE WHEN b.status = 'confirmed' THEN 1 ELSE 0 END), 0) as confirmed,
+			COALESCE(SUM(CASE WHEN b.status = 'present' THEN 1 ELSE 0 END), 0) as present,
+			COALESCE(SUM(CASE WHEN b.status = 'canceled' THEN 1 ELSE 0 END), 0) as canceled,
+			COALESCE(SUM(CASE WHEN b.status = 'refunded' THEN 1 ELSE 0 END), 0) as refunded,
+			COALESCE(SUM(CASE WHEN b.status IN ('confirmed', 'present') THEN b.total_price ELSE 0 END), 0) as revenue
 		FROM bookings b
 		JOIN venues v ON b.venue_id = v.id
-		WHERE v.owner_id = ? 
-        AND b.status IN ('confirmed', 'present', 'absent') 
-        AND v.id = ?
+		WHERE v.owner_id = ? AND v.id = ?
 	`
 	
-	var totalBookings int64
-	var totalRevenue float64
-	
-	err := db.DB.QueryRow(query, ownerID, venueID).Scan(&totalBookings, &totalRevenue)
+	stats := &OwnerStats{}
+	err := db.DB.QueryRow(query, ownerID, venueID).Scan(
+		&stats.ConfirmedBookings,
+		&stats.PresentBookings,
+		&stats.CanceledBookings,
+		&stats.RefundedBookings,
+		&stats.TotalRevenue,
+	)
 	if err != nil {
 		log.Println("Error calculating owner stats:", err)
-		return 0, 0, err
+		return nil, err
 	}
 	
-	return totalBookings, totalRevenue, nil
-}
+	// Calculate Total
+	stats.TotalBookings = stats.ConfirmedBookings + stats.PresentBookings + stats.CanceledBookings + stats.RefundedBookings
 
+	return stats, nil
+}
 // GetOwnerPopularTime finds the most frequently booked start hour for an owner
 func GetOwnerPopularTime(ownerID int64, venueID int64) (string, error) {
 	query := `
@@ -264,14 +271,14 @@ func GetOwnerPopularTime(ownerID int64, venueID int64) (string, error) {
 		ORDER BY booking_count DESC
 		LIMIT 1
 	`
-	
+
 	var popularHour sql.NullInt64
 	var count int
-	
+
 	err := db.DB.QueryRow(query, ownerID, venueID).Scan(&popularHour, &count)
 	if err != nil {
 		if err == sql.ErrNoRows {
-			return "--:--", nil 
+			return "--:--", nil
 		}
 		log.Println("Error calculating popular time:", err)
 		return "", err
@@ -294,16 +301,16 @@ func GetPlatformBookingStats() (int64, float64, error) {
 		FROM bookings
 		WHERE status = 'confirmed'
 	`
-	
+
 	var totalBookings int64
 	var totalRevenue float64
-	
+
 	err := db.DB.QueryRow(query).Scan(&totalBookings, &totalRevenue)
 	if err != nil {
 		log.Println("Error calculating platform stats:", err)
 		return 0, 0, err
 	}
-	
+
 	return totalBookings, totalRevenue, nil
 }
 
@@ -319,10 +326,10 @@ func GetPlatformPopularTime() (string, error) {
 		ORDER BY booking_count DESC
 		LIMIT 1
 	`
-	
+
 	var popularHour sql.NullInt64
 	var count int
-	
+
 	err := db.DB.QueryRow(query).Scan(&popularHour, &count)
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -340,6 +347,8 @@ func GetPlatformPopularTime() (string, error) {
 	return popularTime.Format("03:04 PM"), nil
 }
 
+// booking/booking_repository.go
+
 // GetVenueStatsGrouped calculates total bookings and revenue for all venues (for Admin)
 func GetVenueStatsGrouped() ([]VenueStats, error) {
 	query := `
@@ -350,12 +359,13 @@ func GetVenueStatsGrouped() ([]VenueStats, error) {
 			COUNT(b.id) as total_bookings,
 			COALESCE(SUM(b.total_price), 0) as total_revenue
 		FROM venues v
-		LEFT JOIN bookings b ON v.id = b.venue_id AND b.status = 'confirmed'
+		-- FIX: Count ONLY 'confirmed' and 'present'. Removed 'absent'.
+		LEFT JOIN bookings b ON v.id = b.venue_id AND b.status IN ('confirmed', 'present')
 		WHERE v.status = 'approved'
 		GROUP BY v.id, v.name, v.sport_category
 		ORDER BY v.sport_category, total_revenue DESC
 	`
-	
+
 	rows, err := db.DB.Query(query)
 	if err != nil {
 		log.Println("Error calculating grouped venue stats:", err)
@@ -378,7 +388,7 @@ func GetVenueStatsGrouped() ([]VenueStats, error) {
 		}
 		statsList = append(statsList, stats)
 	}
-	
+
 	if statsList == nil {
 		statsList = make([]VenueStats, 0)
 	}
@@ -395,11 +405,12 @@ func GetOwnerVenueStatsGrouped(ownerID int64) ([]VenueStats, error) {
 			COUNT(b.id) as total_bookings,
 			COALESCE(SUM(b.total_price), 0) as total_revenue
 		FROM venues v
-		LEFT JOIN bookings b ON v.id = b.venue_id AND b.status = 'confirmed'
+		-- FIX: Count ONLY 'confirmed' and 'present'. Removed 'absent'.
+		LEFT JOIN bookings b ON v.id = b.venue_id AND b.status IN ('confirmed', 'present')
 		WHERE v.owner_id = ?
 		GROUP BY v.id, v.name, v.sport_category
 	`
-	
+
 	rows, err := db.DB.Query(query, ownerID)
 	if err != nil {
 		log.Println("Error calculating owner grouped stats:", err)
@@ -422,7 +433,7 @@ func GetOwnerVenueStatsGrouped(ownerID int64) ([]VenueStats, error) {
 		}
 		statsList = append(statsList, stats)
 	}
-	
+
 	if statsList == nil {
 		statsList = make([]VenueStats, 0)
 	}
@@ -430,9 +441,9 @@ func GetOwnerVenueStatsGrouped(ownerID int64) ([]VenueStats, error) {
 }
 
 // ConfirmBookingPayment updates status to 'confirmed' after payment
-func ConfirmBookingPayment(bookingID int64) error {
-	query := `UPDATE bookings SET status = 'confirmed' WHERE id = ?`
-	_, err := db.DB.Exec(query, bookingID)
+func ConfirmBookingPayment(bookingID int64, paymentID string) error {
+	query := `UPDATE bookings SET status = 'confirmed', razorpay_payment_id = ? WHERE id = ?`
+	_, err := db.DB.Exec(query, paymentID, bookingID)
 	if err != nil {
 		log.Println("Error confirming payment:", err)
 		return err
@@ -441,16 +452,20 @@ func ConfirmBookingPayment(bookingID int64) error {
 }
 
 // FindBookingByID fetches a single booking by its ID
+// UPDATED: Now fetches the razorpay_payment_id
+// FindBookingByID fetches a single booking by its ID
 func FindBookingByID(bookingID int64) (*Booking, error) {
+	// Added razorpay_payment_id to the query
 	query := `
-		SELECT id, user_id, venue_id, start_time, end_time, total_price, status, created_at
+		SELECT id, user_id, venue_id, start_time, end_time, total_price, status, created_at, COALESCE(razorpay_payment_id, '')
 		FROM bookings
 		WHERE id = ?
 	`
 	var b Booking
+	// We scan directly into the struct field now
 	err := db.DB.QueryRow(query, bookingID).Scan(
-		&b.ID, &b.UserID, &b.VenueID, &b.StartTime, &b.EndTime, 
-		&b.TotalPrice, &b.Status, &b.CreatedAt,
+		&b.ID, &b.UserID, &b.VenueID, &b.StartTime, &b.EndTime,
+		&b.TotalPrice, &b.Status, &b.CreatedAt, &b.PaymentID, // <--- Fixed Scan
 	)
 	if err != nil {
 		return nil, err
@@ -458,9 +473,9 @@ func FindBookingByID(bookingID int64) (*Booking, error) {
 	return &b, nil
 }
 
+
 // GetBookedSlotsForDate fetches confirmed OR present bookings
 func GetBookedSlotsForDate(venueID int64, dateStr string) ([]BookedSlot, error) {
-	// FIX: Updated query to include 'present' status
 	query := `
 		SELECT start_time, end_time 
 		FROM bookings 
@@ -468,7 +483,7 @@ func GetBookedSlotsForDate(venueID int64, dateStr string) ([]BookedSlot, error) 
 		AND DATE(start_time) = ? 
 		AND status IN ('confirmed', 'present')
 	`
-	
+
 	rows, err := db.DB.Query(query, venueID, dateStr)
 	if err != nil {
 		log.Println("Error querying booked slots:", err)
@@ -476,18 +491,19 @@ func GetBookedSlotsForDate(venueID int64, dateStr string) ([]BookedSlot, error) 
 	}
 	defer rows.Close()
 
-	var slots []BookedSlot
+	// Initialize as empty slice to avoid returning null in JSON
+	slots := make([]BookedSlot, 0)
+
 	for rows.Next() {
 		var s BookedSlot
+		// Corrected: Scan only the 2 columns we asked for into 's'
 		if err := rows.Scan(&s.StartTime, &s.EndTime); err != nil {
+			log.Println("Error scanning slot:", err)
 			continue
 		}
 		slots = append(slots, s)
 	}
-	
-	if slots == nil {
-		slots = make([]BookedSlot, 0)
-	}
+
 	return slots, nil
 }
 
@@ -500,7 +516,7 @@ func UpdateBookingStatusByOwner(bookingID int64, ownerID int64, newStatus string
 		SET b.status = ?
 		WHERE b.id = ? AND v.owner_id = ?
 	`
-	
+
 	result, err := db.DB.Exec(query, newStatus, bookingID, ownerID)
 	if err != nil {
 		log.Println("Error updating booking by owner:", err)
@@ -517,6 +533,7 @@ func UpdateBookingStatusByOwner(bookingID int64, ownerID int64, newStatus string
 	}
 	return nil
 }
+
 // UpdateBookingStatusDirect allows admins to update status without ownership check
 func UpdateBookingStatusDirect(bookingID int64, newStatus string) error {
 	query := `UPDATE bookings SET status = ? WHERE id = ?`
@@ -530,29 +547,37 @@ func UpdateBookingStatusDirect(bookingID int64, newStatus string) error {
 
 // booking/booking_repository.go
 
-// GetVenueStatsSimple calculates stats for a venue (No owner check - for Admin)
-func GetVenueStatsSimple(venueID int64) (int64, float64, error) {
+// GetVenueStatsSimple (For Admin - No Owner Check)
+func GetVenueStatsSimple(venueID int64) (*OwnerStats, error) {
 	query := `
 		SELECT 
-			COUNT(id), 
-			COALESCE(SUM(total_price), 0)
+			COALESCE(SUM(CASE WHEN status = 'confirmed' THEN 1 ELSE 0 END), 0) as confirmed,
+			COALESCE(SUM(CASE WHEN status = 'present' THEN 1 ELSE 0 END), 0) as present,
+			COALESCE(SUM(CASE WHEN status = 'canceled' THEN 1 ELSE 0 END), 0) as canceled,
+			COALESCE(SUM(CASE WHEN status = 'refunded' THEN 1 ELSE 0 END), 0) as refunded,
+			COALESCE(SUM(CASE WHEN status IN ('confirmed', 'present') THEN total_price ELSE 0 END), 0) as revenue
 		FROM bookings
-		WHERE venue_id = ? 
-        AND status IN ('confirmed', 'present', 'absent')
+		WHERE venue_id = ?
 	`
 	
-	var totalBookings int64
-	var totalRevenue float64
-	
-	err := db.DB.QueryRow(query, venueID).Scan(&totalBookings, &totalRevenue)
+	stats := &OwnerStats{}
+	err := db.DB.QueryRow(query, venueID).Scan(
+		&stats.ConfirmedBookings,
+		&stats.PresentBookings,
+		&stats.CanceledBookings,
+		&stats.RefundedBookings,
+		&stats.TotalRevenue,
+	)
 	if err != nil {
 		log.Println("Error calculating venue stats:", err)
-		return 0, 0, err
+		return nil, err
 	}
 	
-	return totalBookings, totalRevenue, nil
+	// Calculate Total
+	stats.TotalBookings = stats.ConfirmedBookings + stats.PresentBookings + stats.CanceledBookings + stats.RefundedBookings
+	
+	return stats, nil
 }
-
 // GetVenuePopularTimeSimple finds popular time for a venue (No owner check - for Admin)
 func GetVenuePopularTimeSimple(venueID int64) (string, error) {
 	query := `
@@ -566,10 +591,10 @@ func GetVenuePopularTimeSimple(venueID int64) (string, error) {
 		ORDER BY booking_count DESC
 		LIMIT 1
 	`
-	
-	var popularHour sql.NullInt64 
+
+	var popularHour sql.NullInt64
 	var count int
-	
+
 	err := db.DB.QueryRow(query, venueID).Scan(&popularHour, &count)
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -585,4 +610,148 @@ func GetVenuePopularTimeSimple(venueID int64) (string, error) {
 
 	popularTime := time.Date(0, 1, 1, int(popularHour.Int64), 0, 0, 0, time.UTC)
 	return popularTime.Format("03:04 PM"), nil
+}
+
+// GetBookingDetailsForOwner fetches a single booking IF the owner owns the venue
+func GetBookingDetailsForOwner(bookingID int64, ownerID int64) (*AdminBookingView, error) {
+	query := `
+		SELECT 
+			b.id, b.venue_id, v.name, v.sport_category, b.user_id, 
+			u.first_name, u.last_name, COALESCE(u.phone, 'N/A'),
+			b.start_time, b.end_time, b.total_price, b.status
+		FROM bookings b
+		JOIN venues v ON b.venue_id = v.id
+		JOIN users u ON b.user_id = u.id 
+		WHERE b.id = ? AND v.owner_id = ?
+	`
+	var b AdminBookingView
+	err := db.DB.QueryRow(query, bookingID, ownerID).Scan(
+		&b.BookingID, &b.VenueID, &b.VenueName, &b.SportCategory, &b.UserID,
+		&b.UserFirstName, &b.UserLastName, &b.UserPhone,
+		&b.StartTime, &b.EndTime, &b.TotalPrice, &b.Status,
+	)
+	if err != nil {
+		return nil, err
+	}
+	return &b, nil
+}
+
+// FetchRawStartTimes gets ONLY the start times for popular time calculation
+func FetchRawStartTimes(venueID int64) ([]time.Time, error) {
+	query := `
+		SELECT start_time 
+		FROM bookings 
+		WHERE venue_id = ? AND status IN ('confirmed', 'present')
+	`
+	rows, err := db.DB.Query(query, venueID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	times := []time.Time{}
+	for rows.Next() {
+		var t time.Time
+		if err := rows.Scan(&t); err == nil {
+			times = append(times, t)
+		}
+	}
+	return times, nil
+}
+
+// FetchAllRawStartTimes (For Admin/Platform stats)
+func FetchAllRawStartTimes() ([]time.Time, error) {
+	query := `SELECT start_time FROM bookings WHERE status='confirmed'`
+	rows, err := db.DB.Query(query)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	times := []time.Time{}
+	for rows.Next() {
+		var t time.Time
+		if err := rows.Scan(&t); err == nil {
+			times = append(times, t)
+		}
+	}
+	return times, nil
+}
+
+// DeleteCanceledBooking removes a canceled booking to allow re-booking
+func DeleteCanceledBooking(venueID int64, startTime time.Time) error {
+	query := `DELETE FROM bookings WHERE venue_id = ? AND start_time = ? AND status = 'canceled'`
+	_, err := db.DB.Exec(query, venueID, startTime)
+	return err
+}
+
+// booking/booking_repository.go
+
+// GetGlobalStatsForOwner calculates stats across ALL venues owned by a user
+func GetGlobalStatsForOwner(ownerID int64) (*OwnerStats, error) {
+	query := `
+		SELECT 
+			COALESCE(SUM(CASE WHEN b.status = 'confirmed' THEN 1 ELSE 0 END), 0),
+			COALESCE(SUM(CASE WHEN b.status = 'present' THEN 1 ELSE 0 END), 0),
+			COALESCE(SUM(CASE WHEN b.status = 'canceled' THEN 1 ELSE 0 END), 0),
+			COALESCE(SUM(CASE WHEN b.status = 'refunded' THEN 1 ELSE 0 END), 0),
+			COALESCE(SUM(CASE WHEN b.status IN ('confirmed', 'present') THEN b.total_price ELSE 0 END), 0)
+		FROM bookings b
+		JOIN venues v ON b.venue_id = v.id
+		WHERE v.owner_id = ?
+	`
+	stats := &OwnerStats{}
+	err := db.DB.QueryRow(query, ownerID).Scan(
+		&stats.ConfirmedBookings, &stats.PresentBookings, &stats.CanceledBookings, 
+        &stats.RefundedBookings, &stats.TotalRevenue,
+	)
+	if err != nil {
+		return nil, err
+	}
+	stats.TotalBookings = stats.ConfirmedBookings + stats.PresentBookings + stats.CanceledBookings + stats.RefundedBookings
+	return stats, nil
+}
+
+// GetGlobalStatsForPlatform calculates stats across the ENTIRE platform (God Mode)
+func GetGlobalStatsForPlatform() (*OwnerStats, error) {
+	query := `
+		SELECT 
+			COALESCE(SUM(CASE WHEN status = 'confirmed' THEN 1 ELSE 0 END), 0),
+			COALESCE(SUM(CASE WHEN status = 'present' THEN 1 ELSE 0 END), 0),
+			COALESCE(SUM(CASE WHEN status = 'canceled' THEN 1 ELSE 0 END), 0),
+			COALESCE(SUM(CASE WHEN status = 'refunded' THEN 1 ELSE 0 END), 0),
+			COALESCE(SUM(CASE WHEN status IN ('confirmed', 'present') THEN total_price ELSE 0 END), 0)
+		FROM bookings
+	`
+	stats := &OwnerStats{}
+	err := db.DB.QueryRow(query).Scan(
+		&stats.ConfirmedBookings, &stats.PresentBookings, &stats.CanceledBookings, 
+        &stats.RefundedBookings, &stats.TotalRevenue,
+	)
+	if err != nil {
+		return nil, err
+	}
+	stats.TotalBookings = stats.ConfirmedBookings + stats.PresentBookings + stats.CanceledBookings + stats.RefundedBookings
+	return stats, nil
+}
+
+// booking/booking_repository.go
+
+// AutoCancelPendingBookings cancels bookings that have been 'pending' for too long
+func AutoCancelPendingBookings(minutes int) (int64, error) {
+	// Query: Set status to 'canceled' IF status is 'pending' AND created_at is older than X minutes
+	// We check against UTC time since that's standard for servers
+	query := `
+		UPDATE bookings 
+		SET status = 'canceled' 
+		WHERE status = 'pending' 
+		AND created_at < DATE_SUB(NOW(), INTERVAL ? MINUTE)
+	`
+	
+	result, err := db.DB.Exec(query, minutes)
+	if err != nil {
+		return 0, err
+	}
+	
+	rows, _ := result.RowsAffected()
+	return rows, nil
 }

@@ -178,25 +178,25 @@ func GetOwnerGroupedStatsHandler(c *gin.Context) {
 // ... (keep all other handlers)
 
 // ProcessPaymentHandler handles the payment request
+// ProcessPaymentHandler (Used for testing/manual payment simulation)
 func ProcessPaymentHandler(c *gin.Context) {
-	bookingID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid booking ID"})
 		return
 	}
 
-	// TODO: You might want to check if the user owns this booking
-
-	err = ProcessPayment(bookingID)
+	// FIX: Pass a placeholder string as the second argument
+	// Real Razorpay payments use the VerifyPaymentHandler in the payment package.
+	err = ProcessPayment(id, "simulated_payment_id") 
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Payment failed"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"message": "Payment successful, booking confirmed!"})
+	c.JSON(http.StatusOK, gin.H{"message": "Payment processed successfully"})
 }
 
-// booking/booking_handler.go
 
 // GetBookedSlotsHandler handles GET /api/v1/venues/:id/slots?date=YYYY-MM-DD
 func GetBookedSlotsHandler(c *gin.Context) {
@@ -249,4 +249,47 @@ func ManageBookingHandler(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "Booking status updated successfully"})
+}
+
+
+// GetSingleBookingOwnerHandler handles GET /api/v1/owner/bookings/:id
+func GetSingleBookingOwnerHandler(c *gin.Context) {
+	bookingID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid booking ID"})
+		return
+	}
+	
+	ownerID := c.MustGet("userID").(int64)
+
+	bookingDetails, err := GetBookingDetailsForOwner(bookingID, ownerID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Booking not found or access denied"})
+		return
+	}
+
+	c.JSON(http.StatusOK, bookingDetails)
+}
+
+// booking/booking_handler.go
+
+// GetOwnerGlobalStatsHandler: /api/v1/owner/stats/global
+func GetOwnerGlobalStatsHandler(c *gin.Context) {
+	userID := c.MustGet("userID").(int64)
+	stats, err := GetGlobalStatsForOwner(userID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch global stats"})
+		return
+	}
+	c.JSON(http.StatusOK, stats)
+}
+
+// GetAdminGlobalStatsHandler: /api/v1/admin/stats/global
+func GetAdminGlobalStatsHandler(c *gin.Context) {
+	stats, err := GetGlobalStatsForPlatform()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch platform stats"})
+		return
+	}
+	c.JSON(http.StatusOK, stats)
 }

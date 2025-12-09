@@ -7,6 +7,7 @@ import (
 	"time"
 	"github.com/JkD004/playarena-backend/notification"
 	"github.com/JkD004/playarena-backend/venue"
+	"github.com/JkD004/playarena-backend/gateway"
 )
 
 // CreateNewBooking handles the business logic
@@ -91,30 +92,26 @@ func BlockVenueSlot(req *CreateBookingRequest, userID int64) error {
 	return nil
 }
 
-// ProcessPayment simulates payment processing
-func ProcessPayment(bookingID int64) error {
-	// 1. Fetch the booking details first (to get UserID)
+// ProcessPayment (Legacy/Internal helper)
+func ProcessPayment(bookingID int64, paymentID string) error { // <--- Added paymentID arg to match
+	// 1. Fetch booking
 	booking, err := FindBookingByID(bookingID)
 	if err != nil {
 		return errors.New("booking not found")
 	}
 
-	// 2. In a real app, verify payment with Stripe/Razorpay here.
-
-	// 3. Update DB status to 'confirmed'
-	err = ConfirmBookingPayment(bookingID)
+	// 2. Update DB
+	err = ConfirmBookingPayment(bookingID, paymentID) // <--- Now matches repo signature
 	if err != nil {
 		return err
 	}
 
-	// 4. Send Notification
-	// We now have booking.UserID from step 1
+	// 3. Notification
 	message := "Payment successful! Your booking has been confirmed."
 	_ = notification.CreateNotification(booking.UserID, message, "success")
 
 	return nil
 }
-
 // --- Getters & Helpers ---
 
 // GetBookingsForUser is the service-layer function
@@ -123,30 +120,52 @@ func GetBookingsForUser(userID int64) ([]Booking, error) {
 }
 
 // CancelBooking handles the logic for canceling a booking
+// CancelBooking handles the logic for canceling a booking
 func CancelBooking(bookingID int64, userID int64) error {
-	// 1. Fetch the booking to check its details
 	booking, err := FindBookingByID(bookingID)
 	if err != nil {
 		return errors.New("booking not found")
 	}
 
-	// 2. POLICY CHECK: Cannot cancel past/started bookings
-	// We add a small buffer (e.g., can't cancel if it starts in less than 1 hour)
-	// For now, let's just say "cannot cancel if already started"
-	if time.Now().After(booking.StartTime) {
-		return errors.New("cannot cancel a booking that has already started")
+	if booking.UserID != userID {
+		return errors.New("unauthorized")
 	}
 
-    // 3. Update the status in the database
-	err = UpdateBookingStatus(bookingID, userID, "canceled")
+	if time.Now().After(booking.StartTime.Add(-2 * time.Hour)) {
+		return errors.New("cannot cancel less than 2 hours before start")
+	}
+
+	var newStatus string
+	var notifMsg string
+
+	if booking.Status == "pending" {
+		newStatus = "canceled"
+		notifMsg = "Booking canceled."
+	} else if booking.Status == "confirmed" {
+		// --- REFUND LOGIC ---
+		if booking.PaymentID == "" {
+			return errors.New("cannot refund: payment ID missing")
+		}
+
+		// Call the new Gateway package (No Import Cycle!)
+		err := gateway.InitiateRefund(booking.PaymentID, booking.TotalPrice)
+		if err != nil {
+			log.Println("Refund Failed:", err)
+			return errors.New("unable to process refund")
+		}
+
+		newStatus = "refunded"
+		notifMsg = "Booking canceled. Refund initiated."
+	} else {
+		return errors.New("cannot cancel this booking")
+	}
+
+	err = UpdateBookingStatus(bookingID, userID, newStatus)
 	if err != nil {
 		return err
 	}
 
-	// 4. Send Notification
-	message := "Your booking has been successfully canceled. A refund will be processed within 5-7 days."
-	_ = notification.CreateNotification(userID, message, "warning")
-
+	_ = notification.CreateNotification(userID, notifMsg, "warning")
 	return nil
 }
 
@@ -160,36 +179,39 @@ func GetAllBookings() ([]AdminBookingView, error) {
 	return FindAllBookings()
 }
 
-// GetStatisticsForOwner is the service-layer function
-// GetStatisticsForOwnerOrAdmin handles logic for both roles
+
+// booking/booking_service.go
+
+// GetStatisticsForOwner handles logic for both roles
 func GetStatisticsForOwner(userID int64, venueID int64, userRole string) (*OwnerStats, error) {
-	var bookings int64
-	var revenue float64
-	var popTime string
+	var stats *OwnerStats
+	var rawTimes []time.Time
 	var err error
 
+	// 1. Fetch Stats (Counts & Revenue)
 	if userRole == "admin" {
-		// Admin: Fetch stats without checking owner_id
-		bookings, revenue, err = GetVenueStatsSimple(venueID)
-        if err != nil { return nil, err }
-        
-		popTime, err = GetVenuePopularTimeSimple(venueID)
-        if err != nil { return nil, err }
+		stats, err = GetVenueStatsSimple(venueID)
+		if err != nil { return nil, err }
+		
+		// Get times for Admin (Confirmed + Present)
+		rawTimes, err = FetchRawStartTimes(venueID)
+		if err != nil { return nil, err }
 
 	} else {
-		// Owner: Enforce owner_id check
-		bookings, revenue, err = GetOwnerBookingStats(userID, venueID)
-        if err != nil { return nil, err }
-        
-		popTime, err = GetOwnerPopularTime(userID, venueID)
-        if err != nil { return nil, err }
+		stats, err = GetOwnerBookingStats(userID, venueID)
+		if err != nil { return nil, err }
+		
+		// Get times for Owner (Confirmed + Present)
+		// We use the same fetcher since ownership is checked in the handler
+		rawTimes, err = FetchRawStartTimes(venueID)
+		if err != nil { return nil, err }
 	}
 
-	return &OwnerStats{
-		TotalBookings: bookings,
-		TotalRevenue:  revenue,
-		PopularTime:   popTime,
-	}, nil
+	// 2. Calculate Popular Time (Using the Go Helper we added)
+	// This uses the list of times to find the busiest hour
+	stats.PopularTime = CalculatePopularTime(rawTimes)
+
+	return stats, nil
 }
 
 // GetStatisticsForAdmin is the service-layer function
@@ -218,6 +240,44 @@ func GetOwnerGroupedStats(ownerID int64) ([]VenueStats, error) {
 	return GetOwnerVenueStatsGrouped(ownerID)
 }
 
+
+// CalculatePopularTime finds the most frequent hour from a list of times
+func CalculatePopularTime(times []time.Time) string {
+	if len(times) == 0 {
+		return "--:--"
+	}
+
+	// 1. Create a frequency map for hours (0-23)
+	hourCounts := make(map[int]int)
+	
+	// 2. Load the timezone for India (IST)
+	loc, err := time.LoadLocation("Asia/Kolkata")
+	if err != nil {
+		// Fallback to Local if timezone data is missing
+		loc = time.Local 
+	}
+
+	// 3. Count frequencies
+	for _, t := range times {
+		// Convert UTC to IST in Go memory
+		localTime := t.In(loc)
+		hourCounts[localTime.Hour()]++
+	}
+
+	// 4. Find max
+	maxCount := 0
+	popularHour := 0
+	for h, count := range hourCounts {
+		if count > maxCount {
+			maxCount = count
+			popularHour = h
+		}
+	}
+
+	// 5. Format
+	t := time.Date(0, 1, 1, popularHour, 0, 0, 0, time.UTC)
+	return t.Format("03:04 PM")
+}
 // GetGroupedVenueStats is the service-layer function for the admin
 func GetGroupedVenueStats() ([]VenueStats, error) {
 	return GetVenueStatsGrouped()
@@ -228,19 +288,40 @@ func init() {
 	_ = time.Duration(0)
 }
 
-// ManageBookingAttendance handles owner/admin actions
-// Added 'userRole' parameter
-func ManageBookingAttendance(bookingID int64, userID int64, userRole string, status string) error {
-	// Validate status
-	if status != "present" && status != "absent" && status != "canceled" {
-		return errors.New("invalid status update")
+// ManageBookingAttendance handles OWNER/ADMIN actions
+func ManageBookingAttendance(bookingID int64, userID int64, userRole string, action string) error {
+	// action can be: 'present', 'absent', 'cancel'
+
+	// 1. Fetch Booking to check current status
+	booking, err := FindBookingByID(bookingID)
+	if err != nil {
+		return errors.New("booking not found")
 	}
 
-	// Logic: If Admin, bypass ownership check. If Owner, enforce it.
-	if userRole == "admin" {
-		return UpdateBookingStatusDirect(bookingID, status)
+	var newStatus string
+
+	// 2. Determine Logic
+	if action == "present" {
+		newStatus = "present"
+	} else if action == "absent" {
+		// If they didn't show up, we keep it as 'confirmed' (money kept) or mark 'absent'
+		// Usually, 'confirmed' is fine, but let's say we mark 'absent' for records.
+		newStatus = "absent" // Ensure your DB ENUM allows this, or stick to 'confirmed'
+	} else if action == "cancel" {
+		// Owner is canceling the booking (e.g., rain, maintenance)
+		if booking.Status == "confirmed" {
+			newStatus = "refunded" // Owner cancels paid slot -> MUST Refund
+		} else {
+			newStatus = "canceled"
+		}
 	} else {
-		return UpdateBookingStatusByOwner(bookingID, userID, status)
+		return errors.New("invalid action")
+	}
+
+	// 3. Apply Update
+	if userRole == "admin" {
+		return UpdateBookingStatusDirect(bookingID, newStatus)
+	} else {
+		return UpdateBookingStatusByOwner(bookingID, userID, newStatus)
 	}
 }
-
