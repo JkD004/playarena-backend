@@ -234,7 +234,7 @@ func GetOwnerBookingStats(ownerID int64, venueID int64) (*OwnerStats, error) {
 			COALESCE(SUM(CASE WHEN b.status = 'present' THEN 1 ELSE 0 END), 0) as present,
 			COALESCE(SUM(CASE WHEN b.status = 'canceled' THEN 1 ELSE 0 END), 0) as canceled,
 			COALESCE(SUM(CASE WHEN b.status = 'refunded' THEN 1 ELSE 0 END), 0) as refunded,
-			COALESCE(SUM(CASE WHEN b.status IN ('confirmed', 'present') THEN b.total_price ELSE 0 END), 0) as revenue
+			COALESCE(SUM(CASE WHEN b.status IN ('confirmed', 'present', 'refund_rejected') THEN b.total_price ELSE 0 END), 0) as revenue
 		FROM bookings b
 		JOIN venues v ON b.venue_id = v.id
 		WHERE v.owner_id = ? AND v.id = ?

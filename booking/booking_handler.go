@@ -6,6 +6,9 @@ import (
 	"github.com/gin-gonic/gin"
 	"net/http"
 	"strconv"
+
+	"github.com/JkD004/playarena-backend/gateway"
+	"github.com/JkD004/playarena-backend/notification"
 )
 
 // CreateBookingHandler handles POST requests to create a booking
@@ -174,8 +177,6 @@ func GetOwnerGroupedStatsHandler(c *gin.Context) {
 	c.JSON(http.StatusOK, stats)
 }
 
-// booking/booking_handler.go
-// ... (keep all other handlers)
 
 // ProcessPaymentHandler handles the payment request
 // ProcessPaymentHandler (Used for testing/manual payment simulation)
@@ -292,4 +293,76 @@ func GetAdminGlobalStatsHandler(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, stats)
+}
+
+
+
+// HandleRefundDecisionHandler allows owner to Approve/Reject refunds
+func HandleRefundDecisionHandler(c *gin.Context) {
+	bookingID, _ := strconv.ParseInt(c.Param("id"), 10, 64)
+	
+	var req struct {
+		Decision string `json:"decision"` // 'approve' or 'reject'
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// 1. Fetch Booking
+	// FIX: Removed 'booking.' prefix (we are already in package booking)
+	b, err := FindBookingByID(bookingID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Booking not found"})
+		return
+	}
+
+	// 2. Validate state
+	if b.Status != "refund_requested" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "This booking is not pending a refund request"})
+		return
+	}
+
+	userID := b.UserID
+	var newStatus string
+	var msg string
+
+	if req.Decision == "approve" {
+		// --- CALL RAZORPAY ---
+		if b.PaymentID == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Missing payment ID"})
+			return
+		}
+		// FIX: 'gateway' is now imported correctly
+		err := gateway.InitiateRefund(b.PaymentID, b.TotalPrice)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Razorpay Refund Failed: " + err.Error()})
+			return
+		}
+		newStatus = "refunded"
+		msg = "Your refund request has been APPROVED. Money sent to source."
+	
+	} else if req.Decision == "reject" {
+		// --- NO REFUND ---
+		newStatus = "refund_rejected"
+		msg = "Your refund request has been REJECTED by the venue owner."
+	
+	} else {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid decision"})
+		return
+	}
+
+	// 3. Update Status
+	// FIX: Removed 'booking.' prefix
+	err = UpdateBookingStatusDirect(bookingID, newStatus)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update status"})
+		return
+	}
+
+	// 4. Notify Player
+	// FIX: 'notification' is now imported correctly
+	_ = notification.CreateNotification(userID, msg, "info")
+
+	c.JSON(http.StatusOK, gin.H{"message": "Refund decision processed", "status": newStatus})
 }

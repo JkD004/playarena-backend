@@ -110,5 +110,7 @@ func SetupRoutes(router *gin.Engine) {
 
 		v1.DELETE("/admin/venues/:id", AuthMiddleware("admin"), venue.AdminDeleteVenueHandler)
 
+		v1.POST("/owner/bookings/:id/refund-decision", AuthMiddleware("owner"), booking.HandleRefundDecisionHandler)
+
 	}
 }

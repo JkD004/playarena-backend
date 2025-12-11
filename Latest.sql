@@ -27,16 +27,24 @@ SET time_zone = "+00:00";
 -- Table structure for table `bookings`
 --
 
-CREATE TABLE `bookings` (
-  `id` int(11) NOT NULL,
-  `user_id` int(11) NOT NULL,
-  `venue_id` int(11) NOT NULL,
-  `start_time` datetime NOT NULL,
-  `end_time` datetime NOT NULL,
-  `total_price` decimal(10,2) NOT NULL,
-  `status` enum('pending','confirmed','canceled') NOT NULL DEFAULT 'pending',
-  `created_at` timestamp NOT NULL DEFAULT current_timestamp()
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+CREATE TABLE bookings (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    user_id INT NOT NULL,
+    venue_id INT NOT NULL,
+    start_time DATETIME NOT NULL,
+    end_time DATETIME NOT NULL,
+    total_price DECIMAL(10, 2) NOT NULL,
+    
+    -- 👇 UPDATE 1: Add 'refunded', 'absent', and 'expired' to the list
+    status ENUM('pending', 'confirmed', 'canceled', 'present', 'refunded', 'absent', 'expired') DEFAULT 'pending',
+    
+    -- 👇 UPDATE 2: Add this new column
+    razorpay_payment_id VARCHAR(255) NULL,
+    
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(id),
+    FOREIGN KEY (venue_id) REFERENCES venues(id)
+);
 
 --
 -- Dumping data for table `bookings`

@@ -7,7 +7,7 @@ import (
 	"time"
 	"github.com/JkD004/playarena-backend/notification"
 	"github.com/JkD004/playarena-backend/venue"
-	"github.com/JkD004/playarena-backend/gateway"
+	//"github.com/JkD004/playarena-backend/gateway"
 )
 
 // CreateNewBooking handles the business logic
@@ -119,8 +119,8 @@ func GetBookingsForUser(userID int64) ([]Booking, error) {
 	return FindBookingsByUserID(userID)
 }
 
-// CancelBooking handles the logic for canceling a booking
-// CancelBooking handles the logic for canceling a booking
+
+// CancelBooking handles the logic for canceling a booking by the PLAYER
 func CancelBooking(bookingID int64, userID int64) error {
 	booking, err := FindBookingByID(bookingID)
 	if err != nil {
@@ -131,6 +131,7 @@ func CancelBooking(bookingID int64, userID int64) error {
 		return errors.New("unauthorized")
 	}
 
+	// Time check (e.g., 2 hours before)
 	if time.Now().After(booking.StartTime.Add(-2 * time.Hour)) {
 		return errors.New("cannot cancel less than 2 hours before start")
 	}
@@ -139,23 +140,15 @@ func CancelBooking(bookingID int64, userID int64) error {
 	var notifMsg string
 
 	if booking.Status == "pending" {
+		// Unpaid -> Just cancel
 		newStatus = "canceled"
 		notifMsg = "Booking canceled."
 	} else if booking.Status == "confirmed" {
-		// --- REFUND LOGIC ---
-		if booking.PaymentID == "" {
-			return errors.New("cannot refund: payment ID missing")
-		}
-
-		// Call the new Gateway package (No Import Cycle!)
-		err := gateway.InitiateRefund(booking.PaymentID, booking.TotalPrice)
-		if err != nil {
-			log.Println("Refund Failed:", err)
-			return errors.New("unable to process refund")
-		}
-
-		newStatus = "refunded"
-		notifMsg = "Booking canceled. Refund initiated."
+		// Paid -> DO NOT REFUND YET. Set to Requested.
+		newStatus = "refund_requested"
+		notifMsg = "Cancellation requested. Waiting for venue owner approval for refund."
+		
+		// TODO: Send notification to OWNER here as well
 	} else {
 		return errors.New("cannot cancel this booking")
 	}
@@ -165,9 +158,12 @@ func CancelBooking(bookingID int64, userID int64) error {
 		return err
 	}
 
+	// Notify Player
 	_ = notification.CreateNotification(userID, notifMsg, "warning")
+	
 	return nil
 }
+
 
 // GetBookingsForVenue is the service-layer function
 func GetBookingsForVenue(venueID int64) ([]AdminBookingView, error) {
@@ -180,7 +176,6 @@ func GetAllBookings() ([]AdminBookingView, error) {
 }
 
 
-// booking/booking_service.go
 
 // GetStatisticsForOwner handles logic for both roles
 func GetStatisticsForOwner(userID int64, venueID int64, userRole string) (*OwnerStats, error) {
