@@ -71,3 +71,34 @@ func AuthMiddleware(allowedRoles ...string) gin.HandlerFunc {
 		c.Next()
 	}
 }
+
+// 👇 ADD THIS NEW FUNCTION 👇
+// MaintenanceMiddleware blocks all requests when MAINTENANCE_MODE is "true"
+func MaintenanceMiddleware() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		// 1. Check Env Variable
+		if os.Getenv("MAINTENANCE_MODE") == "true" {
+			
+			// 2. EXCEPTION: Always allow Health Check (so UptimeRobot doesn't panic)
+			if c.Request.URL.Path == "/api/v1/health" {
+				c.Next()
+				return
+			}
+
+			// 3. EXCEPTION: Optional - Allow Admin Login if needed
+			// if strings.Contains(c.Request.URL.Path, "/login") || strings.Contains(c.Request.URL.Path, "/admin") {
+			// 	c.Next()
+			// 	return
+			// }
+
+			// 4. Reject everything else with 503
+			c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{
+				"error": "System is under maintenance. Please try again later.",
+				"code":  503,
+			})
+			return
+		}
+
+		c.Next()
+	}
+}

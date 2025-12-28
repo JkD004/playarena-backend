@@ -14,6 +14,7 @@ import (
 
 func SetupRoutes(router *gin.Engine) {
 
+	router.Use(MaintenanceMiddleware())
 	v1 := router.Group("/api/v1")
 	{
 		// === Public Routes (No Auth Needed) ===
