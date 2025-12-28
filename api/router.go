@@ -17,6 +17,8 @@ func SetupRoutes(router *gin.Engine) {
 	v1 := router.Group("/api/v1")
 	{
 		// === Public Routes (No Auth Needed) ===
+
+		v1.GET("/health", func(c *gin.Context) { c.JSON(200, gin.H{"status": "alive"}) })
 		v1.POST("/register", user.RegisterUserHandler)
 		v1.POST("/login", user.LoginUserHandler)
 		v1.GET("/venues", venue.GetVenuesHandler)
