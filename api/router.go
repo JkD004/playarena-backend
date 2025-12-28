@@ -19,7 +19,17 @@ func SetupRoutes(router *gin.Engine) {
 	{
 		// === Public Routes (No Auth Needed) ===
 
-		v1.GET("/health", func(c *gin.Context) { c.JSON(200, gin.H{"status": "alive"}) })
+		// 1. Existing GET route (Keep this for browser checks)
+        v1.GET("/health", func(c *gin.Context) {
+            c.JSON(200, gin.H{"status": "alive"})
+        })
+
+        // 👇 2. ADD THIS NEW HEAD ROUTE (For UptimeRobot)
+        v1.HEAD("/health", func(c *gin.Context) {
+            c.Status(200) // Responds with "200 OK" but no body
+        })
+
+
 		v1.POST("/register", user.RegisterUserHandler)
 		v1.POST("/login", user.LoginUserHandler)
 		v1.GET("/venues", venue.GetVenuesHandler)
