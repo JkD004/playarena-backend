@@ -8,7 +8,7 @@ import (
 	"net/http"
 	"os"
 	"strconv"
-	"time"
+	//"time"
 
 	"github.com/JkD004/playarena-backend/gateway"
 	"github.com/JkD004/playarena-backend/notification"
@@ -91,16 +91,18 @@ func CreateBookingHandler(c *gin.Context) {
 			// ================================
 			// 1. LOAD IST TIMEZONE
 			// ================================
-			loc, err := time.LoadLocation("Asia/Kolkata")
+			{/*
+				loc, err := time.LoadLocation("Asia/Kolkata")
 			if err != nil {
 				loc = time.UTC
 			}
-
+			*/}
+			
 			// ================================
 			// 2. CONVERT TIMES TO IST
 			// ================================
-			startTime := newBooking.StartTime.In(loc)
-			endTime := newBooking.EndTime.In(loc)
+			startTime := newBooking.StartTime
+			endTime := newBooking.EndTime
 			bookingDate := startTime
 
 			// ================================
