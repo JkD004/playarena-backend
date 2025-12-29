@@ -3,12 +3,17 @@ package booking
 
 import (
 	//"github.com/JkD004/playarena-backend/venue"
+	"fmt"
 	"github.com/gin-gonic/gin"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/JkD004/playarena-backend/gateway"
 	"github.com/JkD004/playarena-backend/notification"
+	"github.com/JkD004/playarena-backend/pkg/utils"
+	"github.com/JkD004/playarena-backend/user"
+	"github.com/JkD004/playarena-backend/venue"
 )
 
 // CreateBookingHandler handles POST requests to create a booking
@@ -28,7 +33,135 @@ func CreateBookingHandler(c *gin.Context) {
 		return
 	}
 
+	// ---------------- EMAIL LOGIC ----------------
+
+	// Fetch user details
+	userData, err := user.GetUserByID(userID)
+	if err != nil {
+		fmt.Println("Failed to fetch user:", err)
+	} else {
+
+		// Fetch venue details
+		venueData, err := venue.GetVenueByID(newBooking.VenueID)
+		if err != nil {
+			fmt.Println("Failed to fetch venue:", err)
+		} else {
+
+			// ✅ Generate ticket download link
+			//baseURL := "https://playarena-backend-geg8.onrender.com" // change for local if needed
+			baseURL := "http://localhost:8080"
+
+			downloadLink := fmt.Sprintf("%s/api/v1/bookings/%d/ticket", baseURL, newBooking.ID)
+
+			subject := "Booking Confirmed! - SportGrid"
+
+			// Load IST timezone
+			loc, err := time.LoadLocation("Asia/Kolkata")
+			if err != nil {
+				loc = time.Local
+			}
+
+			// Convert booking times
+			startTime := newBooking.StartTime.In(loc)
+			endTime := newBooking.EndTime.In(loc)
+
+			// Format values
+			dateStr := startTime.Format("02 Jan 2006")
+			startTimeStr := startTime.Format("03:04 PM")
+			endTimeStr := endTime.Format("03:04 PM")
+
+			// Email body
+			body := fmt.Sprintf(`
+    <h1>Booking Confirmed! ✅</h1>
+    <p>Hi %s,</p>
+    <p>Your booking at <strong>%s</strong> is confirmed.</p>
+
+    <p><strong>Date:</strong> %s</p>
+    <p><strong>Time:</strong> %s - %s</p>
+    <p><strong>Total Price:</strong> ₹%.2f</p>
+
+    <br>
+
+    <a href="%s" style="background-color:#008CBA;color:white;padding:10px 20px;
+    text-decoration:none;border-radius:5px;font-weight:bold;">
+        Download Ticket
+    </a>
+
+    <br><br>
+    <p>If the button doesn't work, click here:</p>
+    <p><a href="%s">%s</a></p>
+
+    <br>
+    <p>Thank you for choosing SportGrid!</p>
+`,
+				userData.FirstName,
+				venueData.Name,
+				dateStr,
+				startTimeStr,
+				endTimeStr,
+				newBooking.TotalPrice,
+				downloadLink,
+				downloadLink,
+				downloadLink,
+			)
+
+			go func() {
+				err := notification.SendEmail(userData.Email, subject, body)
+				if err != nil {
+					fmt.Println("Email send failed:", err)
+				}
+			}()
+		}
+	}
+
+	// --------------------------------------------
+
 	c.JSON(http.StatusCreated, newBooking)
+}
+
+// DownloadTicketHandler generates and serves the PDF
+func DownloadTicketHandler(c *gin.Context) {
+	bookingID, _ := strconv.ParseInt(c.Param("id"), 10, 64)
+
+	// 1. Fetch Booking
+	booking, err := FindBookingByID(bookingID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Booking not found"})
+		return
+	}
+
+	// 2. Fetch User and Venue Details
+	venueData, _ := venue.GetVenueByID(booking.VenueID)
+	userData, _ := user.GetUserByID(booking.UserID)
+
+	// 3. Generate PDF
+	// Ensure you match the parameters exactly as defined in pdf_generator.go
+	pdf, err := utils.GenerateTicketPDF(
+		userData.FirstName, // userName
+		userData.LastName,  // userLastName
+		venueData.Name,     // venueName
+		venueData.Address,  // venueAddress
+		booking.ID,         // bookingID
+		userData.ID,        // userID
+		booking.StartTime,  // startTime
+		booking.EndTime,    // endTime
+		booking.CreatedAt,  // bookingCreated
+	)
+
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Could not generate ticket: " + err.Error()})
+		return
+	}
+
+	// 4. Create Filename and Download
+	fileName := fmt.Sprintf("TICKET-U%d-V%d-B%d.pdf", userData.ID, venueData.ID, booking.ID)
+	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=%s", fileName))
+	c.Header("Content-Type", "application/pdf")
+
+	err = pdf.Output(c.Writer)
+	if err != nil {
+		fmt.Println("Error outputting PDF:", err)
+	}
 }
 
 // GetUserBookingsHandler handles fetching all bookings for the logged-in user
@@ -177,7 +310,6 @@ func GetOwnerGroupedStatsHandler(c *gin.Context) {
 	c.JSON(http.StatusOK, stats)
 }
 
-
 // ProcessPaymentHandler handles the payment request
 // ProcessPaymentHandler (Used for testing/manual payment simulation)
 func ProcessPaymentHandler(c *gin.Context) {
@@ -189,7 +321,7 @@ func ProcessPaymentHandler(c *gin.Context) {
 
 	// FIX: Pass a placeholder string as the second argument
 	// Real Razorpay payments use the VerifyPaymentHandler in the payment package.
-	err = ProcessPayment(id, "simulated_payment_id") 
+	err = ProcessPayment(id, "simulated_payment_id")
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -197,7 +329,6 @@ func ProcessPaymentHandler(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{"message": "Payment processed successfully"})
 }
-
 
 // GetBookedSlotsHandler handles GET /api/v1/venues/:id/slots?date=YYYY-MM-DD
 func GetBookedSlotsHandler(c *gin.Context) {
@@ -252,7 +383,6 @@ func ManageBookingHandler(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "Booking status updated successfully"})
 }
 
-
 // GetSingleBookingOwnerHandler handles GET /api/v1/owner/bookings/:id
 func GetSingleBookingOwnerHandler(c *gin.Context) {
 	bookingID, err := strconv.ParseInt(c.Param("id"), 10, 64)
@@ -260,7 +390,7 @@ func GetSingleBookingOwnerHandler(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid booking ID"})
 		return
 	}
-	
+
 	ownerID := c.MustGet("userID").(int64)
 
 	bookingDetails, err := GetBookingDetailsForOwner(bookingID, ownerID)
@@ -295,12 +425,10 @@ func GetAdminGlobalStatsHandler(c *gin.Context) {
 	c.JSON(http.StatusOK, stats)
 }
 
-
-
 // HandleRefundDecisionHandler allows owner to Approve/Reject refunds
 func HandleRefundDecisionHandler(c *gin.Context) {
 	bookingID, _ := strconv.ParseInt(c.Param("id"), 10, 64)
-	
+
 	var req struct {
 		Decision string `json:"decision"` // 'approve' or 'reject'
 	}
@@ -341,12 +469,12 @@ func HandleRefundDecisionHandler(c *gin.Context) {
 		}
 		newStatus = "refunded"
 		msg = "Your refund request has been APPROVED. Money sent to source."
-	
+
 	} else if req.Decision == "reject" {
 		// --- NO REFUND ---
 		newStatus = "refund_rejected"
 		msg = "Your refund request has been REJECTED by the venue owner."
-	
+
 	} else {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid decision"})
 		return

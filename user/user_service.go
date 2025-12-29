@@ -127,3 +127,7 @@ func RemoveUser(userID int64) error {
 func ChangeUserRole(userID int64, newRole string) error {
 	return UpdateUserRoleByID(userID, newRole)
 }
+// GetUserByID fetches a user model by their ID (Wrapper for FindUserByID)
+func GetUserByID(userID int64) (*User, error) {
+    return FindUserByID(userID)
+}
