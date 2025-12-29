@@ -18,31 +18,31 @@ import (
 )
 
 
-// TestLiveEmailHandler forces an email send and returns the log
+// booking/booking_handler.go
+
 func TestLiveEmailHandler(c *gin.Context) {
-    // 1. Check if Env Vars are loaded
-    host := os.Getenv("SMTP_HOST")
-    email := os.Getenv("SMTP_EMAIL")
-    pass := os.Getenv("SMTP_PASSWORD")
+    // 1. Check if API Key is loaded
+    apiKey := os.Getenv("RESEND_API_KEY")
     
-    // Safety check: Don't show full password, just first/last chars
-    maskedPass := "NOT SET"
-    if len(pass) > 4 {
-        maskedPass = pass[:2] + "..." + pass[len(pass)-2:]
+    maskedKey := "NOT SET"
+    if len(apiKey) > 5 {
+        maskedKey = apiKey[:3] + "..." + apiKey[len(apiKey)-3:]
     }
 
-    debugInfo := fmt.Sprintf("Host: %s | Email: %s | Pass: %s", host, email, maskedPass)
-    fmt.Println("Debug Info:", debugInfo) // Print to Render Logs
+    debugInfo := fmt.Sprintf("API Key: %s", maskedKey)
+    fmt.Println("Debug Info:", debugInfo)
 
-    // 2. Try to send
-    subject := "Test Email from Live Server"
-    body := "<h1>It Works!</h1><p>If you see this, your live server is configured correctly.</p>"
+    // 2. Define the recipient explicitly (Since we deleted SMTP_EMAIL)
+    // MUST match your Resend login email for the free tier
+    recipient := "thesportgrid@gmail.com" 
+
+    subject := "Test Email from Live Server (Resend)"
+    body := "<h1>It Works!</h1><p>Your Resend API is configured correctly.</p>"
     
-    // We call your notification package directly
-    err := notification.SendEmail(email, subject, body) // Sending to yourself
+    // 3. Try to send
+    err := notification.SendEmail(recipient, subject, body)
     
     if err != nil {
-        //  IF IT FAILS: Print the EXACT error to the browser
         c.JSON(500, gin.H{
             "status": "failed",
             "error": err.Error(),
@@ -51,14 +51,12 @@ func TestLiveEmailHandler(c *gin.Context) {
         return
     }
 
-    // ✅ IF SUCCESS
     c.JSON(200, gin.H{
         "status": "success", 
-        "message": "Email sent successfully!",
+        "message": "Email sent successfully to " + recipient,
         "config": debugInfo,
     })
 }
-
 
 // CreateBookingHandler handles POST requests to create a booking
 func CreateBookingHandler(c *gin.Context) {
