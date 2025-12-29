@@ -67,6 +67,7 @@ func SetupRoutes(router *gin.Engine) {
 		v1.POST("/bookings/:id/pay", AuthMiddleware("player", "owner", "admin"), booking.ProcessPaymentHandler) // Manual/Test
 		v1.POST("/payment/create-order/:id", AuthMiddleware("player", "owner", "admin"), payment.CreateOrderHandler)
 		v1.POST("/payment/verify", AuthMiddleware("player", "owner", "admin"), payment.VerifyPaymentHandler)
+		v1.POST("/bookings/verify", booking.VerifyTicketHandler)
 
 		// --- Teams & Chat ---
 		v1.POST("/teams", AuthMiddleware("player", "owner", "admin"), team.CreateTeamHandler)

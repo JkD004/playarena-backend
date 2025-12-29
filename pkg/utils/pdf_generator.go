@@ -2,7 +2,11 @@ package utils
 
 import (
 	"bytes"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
+	"os"
 	"time"
 
 	"github.com/jung-kurt/gofpdf"
@@ -161,15 +165,35 @@ func GenerateTicketPDF(
 	)
 
 	// QR
+	// ---------------------------------------------------------
+	// SECURITY UPGRADE: SIGNED QR CODE
+	// ---------------------------------------------------------
+	// We create a hash to prove this QR code came from us.
+	// Format: "BookingID|Signature"
+
 	qrY := y + 44
-	qr, _ := qrcode.Encode(fmt.Sprintf("BOOKING:%d", bookingID), qrcode.Medium, 256)
+
+	secretKey := os.Getenv("TICKET_SECRET_KEY")
+	if secretKey == "" {
+		secretKey = "default_unsafe_secret" // Fallback (unsafe for prod, helpful for dev)
+	}
+
+	// 1. Create the data payload
+	data := fmt.Sprintf("%d", bookingID)
+
+	// 2. Create the signature (HMAC-SHA256)
+	h := hmac.New(sha256.New, []byte(secretKey))
+	h.Write([]byte(data))
+	signature := hex.EncodeToString(h.Sum(nil))
+
+	// 3. Combine them
+	// The QR code will contain: "105|a94a8fe5ccb19..."
+	qrContent := fmt.Sprintf("%s|%s", data, signature)
+
+	// 4. Generate QR
+	qr, _ := qrcode.Encode(qrContent, qrcode.Medium, 256)
 	pdf.RegisterImageOptionsReader("qr", gofpdf.ImageOptions{ImageType: "PNG"}, bytes.NewReader(qr))
 	pdf.ImageOptions("qr", cardX+(cardW/2)-15, qrY, 30, 30, false, gofpdf.ImageOptions{}, 0, "")
-
-	pdf.SetFont("Arial", "", 9)
-	pdf.SetTextColor(gray[0], gray[1], gray[2])
-	pdf.SetXY(cardX, qrY+34)
-	pdf.CellFormat(cardW, 5, "Scan to verify entry", "", 0, "C", false, 0, "")
 
 	return pdf, nil
 }

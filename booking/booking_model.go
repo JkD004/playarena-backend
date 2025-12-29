@@ -18,6 +18,7 @@ type Booking struct {
 	Status        string    `json:"status"`
 	PaymentID     string    `json:"razorpay_payment_id"` // <--- ADDED THIS FIELD
 	CreatedAt     time.Time `json:"created_at"`
+	QRCode        string    `json:"qr_code" gorm:"-"` // <--- ADD THIS
 }
 
 // Add a struct for the request body, as users won't send everything

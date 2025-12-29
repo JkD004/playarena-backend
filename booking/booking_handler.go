@@ -3,11 +3,16 @@ package booking
 
 import (
 	//"github.com/JkD004/playarena-backend/venue"
+	"crypto/hmac"
+	"crypto/sha256"
+	"crypto/subtle"
+	"encoding/hex"
 	"fmt"
 	"github.com/gin-gonic/gin"
 	"net/http"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/JkD004/playarena-backend/gateway"
@@ -113,7 +118,11 @@ func CreateBookingHandler(c *gin.Context) {
 			// ================================
 			// 4. DOWNLOAD LINK
 			// ================================
-			baseURL := "https://playarena-frontend.vercel.app"
+			//baseURL := "https://playarena-frontend.vercel.app"
+			
+			baseURL := "http://localhost:3000"
+
+
 			downloadLink := fmt.Sprintf(
 				"%s/bookings/%d/ticket?download=true",
 				baseURL,
@@ -177,6 +186,54 @@ Download Ticket
 	c.JSON(http.StatusCreated, newBooking)
 }
 
+// VerifyTicketHandler checks if a scanned QR code is valid
+func VerifyTicketHandler(c *gin.Context) {
+	var req struct {
+		QRCodeString string `json:"qr_code" binding:"required"`
+	}
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"valid": false, "message": "Invalid Request"})
+		return
+	}
+
+	// 1. Split the content "BookingID|Signature"
+	parts := strings.Split(req.QRCodeString, "|")
+	if len(parts) != 2 {
+		c.JSON(http.StatusOK, gin.H{"valid": false, "message": "Fake Ticket: Invalid Format"})
+		return
+	}
+
+	bookingIDStr := parts[0]
+	providedSignature := parts[1]
+
+	// 2. Re-create the signature using OUR secret
+	secretKey := os.Getenv("TICKET_SECRET_KEY")
+	if secretKey == "" {
+		secretKey = "default_unsafe_secret"
+	}
+
+	h := hmac.New(sha256.New, []byte(secretKey))
+	h.Write([]byte(bookingIDStr))
+	expectedSignature := hex.EncodeToString(h.Sum(nil))
+
+	// 3. Compare signatures
+	// We use subtle.ConstantTimeCompare to prevent timing attacks
+	if subtle.ConstantTimeCompare([]byte(providedSignature), []byte(expectedSignature)) != 1 {
+		c.JSON(http.StatusOK, gin.H{"valid": false, "message": "Fake Ticket: Signature Mismatch"})
+		return
+	}
+
+	// 4. (Optional) Check if booking exists in DB and is for today
+	// ... Database logic here ...
+
+	c.JSON(http.StatusOK, gin.H{
+		"valid":      true,
+		"booking_id": bookingIDStr,
+		"message":    "Ticket Verified Successfully ✅",
+	})
+}
+
 // DownloadTicketHandler generates and serves the PDF
 func DownloadTicketHandler(c *gin.Context) {
 	bookingID, _ := strconv.ParseInt(c.Param("id"), 10, 64)
@@ -235,6 +292,29 @@ func GetUserBookingsHandler(c *gin.Context) {
 	if bookings == nil {
 		bookings = make([]Booking, 0)
 	}
+
+	// ----------------------------------------------------
+	// NEW: Generate Signed QR Codes for each booking
+	// ----------------------------------------------------
+	secretKey := os.Getenv("TICKET_SECRET_KEY")
+	if secretKey == "" {
+		secretKey = "default_unsafe_secret"
+	}
+
+	// Loop through each booking and sign it
+	for i := range bookings {
+		// 1. Create Data
+		data := fmt.Sprintf("%d", bookings[i].ID)
+
+		// 2. Create Signature
+		h := hmac.New(sha256.New, []byte(secretKey))
+		h.Write([]byte(data))
+		signature := hex.EncodeToString(h.Sum(nil))
+
+		// 3. Attach to the struct
+		bookings[i].QRCode = fmt.Sprintf("%s|%s", data, signature)
+	}
+	// ----------------------------------------------------
 
 	c.JSON(http.StatusOK, bookings)
 }
