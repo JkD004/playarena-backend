@@ -6,9 +6,9 @@ import (
 	"fmt"
 	"github.com/gin-gonic/gin"
 	"net/http"
+	"os"
 	"strconv"
 	"time"
-	"os"
 
 	"github.com/JkD004/playarena-backend/gateway"
 	"github.com/JkD004/playarena-backend/notification"
@@ -17,45 +17,44 @@ import (
 	"github.com/JkD004/playarena-backend/venue"
 )
 
-
 // booking/booking_handler.go
 
 func TestLiveEmailHandler(c *gin.Context) {
-    // 1. Check if API Key is loaded
-    apiKey := os.Getenv("RESEND_API_KEY")
-    
-    maskedKey := "NOT SET"
-    if len(apiKey) > 5 {
-        maskedKey = apiKey[:3] + "..." + apiKey[len(apiKey)-3:]
-    }
+	// 1. Check if API Key is loaded
+	apiKey := os.Getenv("RESEND_API_KEY")
 
-    debugInfo := fmt.Sprintf("API Key: %s", maskedKey)
-    fmt.Println("Debug Info:", debugInfo)
+	maskedKey := "NOT SET"
+	if len(apiKey) > 5 {
+		maskedKey = apiKey[:3] + "..." + apiKey[len(apiKey)-3:]
+	}
 
-    // 2. Define the recipient explicitly (Since we deleted SMTP_EMAIL)
-    // MUST match your Resend login email for the free tier
-    recipient := "thesportgrid@gmail.com" 
+	debugInfo := fmt.Sprintf("API Key: %s", maskedKey)
+	fmt.Println("Debug Info:", debugInfo)
 
-    subject := "Test Email from Live Server (Resend)"
-    body := "<h1>It Works!</h1><p>Your Resend API is configured correctly.</p>"
-    
-    // 3. Try to send
-    err := notification.SendEmail(recipient, subject, body)
-    
-    if err != nil {
-        c.JSON(500, gin.H{
-            "status": "failed",
-            "error": err.Error(),
-            "config_loaded": debugInfo,
-        })
-        return
-    }
+	// 2. Define the recipient explicitly (Since we deleted SMTP_EMAIL)
+	// MUST match your Resend login email for the free tier
+	recipient := "thesportgrid@gmail.com"
 
-    c.JSON(200, gin.H{
-        "status": "success", 
-        "message": "Email sent successfully to " + recipient,
-        "config": debugInfo,
-    })
+	subject := "Test Email from Live Server (Resend)"
+	body := "<h1>It Works!</h1><p>Your Resend API is configured correctly.</p>"
+
+	// 3. Try to send
+	err := notification.SendEmail(recipient, subject, body)
+
+	if err != nil {
+		c.JSON(500, gin.H{
+			"status":        "failed",
+			"error":         err.Error(),
+			"config_loaded": debugInfo,
+		})
+		return
+	}
+
+	c.JSON(200, gin.H{
+		"status":  "success",
+		"message": "Email sent successfully to " + recipient,
+		"config":  debugInfo,
+	})
 }
 
 // CreateBookingHandler handles POST requests to create a booking
@@ -102,7 +101,7 @@ func CreateBookingHandler(c *gin.Context) {
 			// ================================
 			startTime := newBooking.StartTime.In(loc)
 			endTime := newBooking.EndTime.In(loc)
-			bookingDate := newBooking.CreatedAt.In(loc)
+			bookingDate := startTime
 
 			// ================================
 			// 3. FORMAT STRINGS
@@ -179,7 +178,6 @@ Download Ticket
 	// ---------------- RESPONSE ----------------
 	c.JSON(http.StatusCreated, newBooking)
 }
-
 
 // DownloadTicketHandler generates and serves the PDF
 func DownloadTicketHandler(c *gin.Context) {
