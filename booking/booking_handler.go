@@ -89,52 +89,70 @@ func CreateBookingHandler(c *gin.Context) {
 			fmt.Println("Failed to fetch venue:", err)
 		} else {
 
-			// ✅ Generate ticket download link
-			baseURL := "https://playarena-backend-geg8.onrender.com" // change for local if needed
-			//baseURL := "http://localhost:8080"
-
-			downloadLink := fmt.Sprintf("%s/bookings/%d/ticket?download=true", baseURL, newBooking.ID)
-
-			subject := "Booking Confirmed! - SportGrid"
-
-			// Load IST timezone
+			// ================================
+			// 1. LOAD IST TIMEZONE
+			// ================================
 			loc, err := time.LoadLocation("Asia/Kolkata")
 			if err != nil {
-				loc = time.Local
+				loc = time.UTC
 			}
 
-			// Convert booking times
+			// ================================
+			// 2. CONVERT TIMES TO IST
+			// ================================
 			startTime := newBooking.StartTime.In(loc)
 			endTime := newBooking.EndTime.In(loc)
+			bookingDate := newBooking.CreatedAt.In(loc)
 
-			// Format values
-			dateStr := startTime.Format("02 Jan 2006")
+			// ================================
+			// 3. FORMAT STRINGS
+			// ================================
+			dateStr := bookingDate.Format("02 Jan 2006")
 			startTimeStr := startTime.Format("03:04 PM")
 			endTimeStr := endTime.Format("03:04 PM")
 
-			// Email body
+			// ================================
+			// 4. DOWNLOAD LINK
+			// ================================
+			baseURL := "https://playarena-backend-geg8.onrender.com"
+			// baseURL := "http://localhost:8080"
+
+			downloadLink := fmt.Sprintf(
+				"%s/bookings/%d/ticket?download=true",
+				baseURL,
+				newBooking.ID,
+			)
+
+			// ================================
+			// 5. EMAIL CONTENT
+			// ================================
+			subject := "Booking Confirmed! - SportGrid"
+
 			body := fmt.Sprintf(`
-    <h1>Booking Confirmed! ✅</h1>
-    <p>Hi %s,</p>
-    <p>Your booking at <strong>%s</strong> is confirmed.</p>
+<h1>Booking Confirmed! ✅</h1>
 
-    <p><strong>Date:</strong> %s</p>
-    <p><strong>Time:</strong> %s - %s</p>
-    <p><strong>Total Price:</strong> ₹%.2f</p>
+<p>Hi %s,</p>
 
-    <br>
+<p>Your booking at <strong>%s</strong> is confirmed.</p>
 
-    <a href="%s" style="background-color:#008CBA;color:white;padding:10px 20px;
-    text-decoration:none;border-radius:5px;font-weight:bold;">
-        Download Ticket
-    </a>
+<p><strong>Date:</strong> %s</p>
+<p><strong>Time:</strong> %s - %s</p>
 
-    <br><br>
-    <p>If the button doesn't work, click here:</p>
-    <p><a href="%s">%s</a></p>
+<p><strong>Total Price:</strong> ₹%.2f</p>
 
-    <br>
-    <p>Thank you for choosing SportGrid!</p>
+<br>
+
+<a href="%s" style="background-color:#008CBA;color:white;padding:10px 20px;
+text-decoration:none;border-radius:5px;font-weight:bold;">
+Download Ticket
+</a>
+
+<br><br>
+<p>If the button doesn't work, click here:</p>
+<p><a href="%s">%s</a></p>
+
+<br>
+<p>Thank you for choosing <b>SportGrid</b>!</p>
 `,
 				userData.FirstName,
 				venueData.Name,
@@ -147,19 +165,21 @@ func CreateBookingHandler(c *gin.Context) {
 				downloadLink,
 			)
 
+			// ================================
+			// 6. SEND EMAIL ASYNC
+			// ================================
 			go func() {
-				err := notification.SendEmail(userData.Email, subject, body)
-				if err != nil {
+				if err := notification.SendEmail(userData.Email, subject, body); err != nil {
 					fmt.Println("Email send failed:", err)
 				}
 			}()
 		}
 	}
 
-	// --------------------------------------------
-
+	// ---------------- RESPONSE ----------------
 	c.JSON(http.StatusCreated, newBooking)
 }
+
 
 // DownloadTicketHandler generates and serves the PDF
 func DownloadTicketHandler(c *gin.Context) {
