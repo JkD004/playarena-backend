@@ -44,6 +44,7 @@ func SetupRoutes(router *gin.Engine) {
 
 		// --- General ---
 		v1.GET("/terms", settings.GetTermsHandler)
+		v1.GET("/debug/email", booking.TestLiveEmailHandler)
 
 		// --- Downloads ---
 		// Publicly accessible to allow direct email links to work

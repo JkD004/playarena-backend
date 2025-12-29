@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"strconv"
 	"time"
+	"os"
 
 	"github.com/JkD004/playarena-backend/gateway"
 	"github.com/JkD004/playarena-backend/notification"
@@ -15,6 +16,49 @@ import (
 	"github.com/JkD004/playarena-backend/user"
 	"github.com/JkD004/playarena-backend/venue"
 )
+
+
+// TestLiveEmailHandler forces an email send and returns the log
+func TestLiveEmailHandler(c *gin.Context) {
+    // 1. Check if Env Vars are loaded
+    host := os.Getenv("SMTP_HOST")
+    email := os.Getenv("SMTP_EMAIL")
+    pass := os.Getenv("SMTP_PASSWORD")
+    
+    // Safety check: Don't show full password, just first/last chars
+    maskedPass := "NOT SET"
+    if len(pass) > 4 {
+        maskedPass = pass[:2] + "..." + pass[len(pass)-2:]
+    }
+
+    debugInfo := fmt.Sprintf("Host: %s | Email: %s | Pass: %s", host, email, maskedPass)
+    fmt.Println("Debug Info:", debugInfo) // Print to Render Logs
+
+    // 2. Try to send
+    subject := "Test Email from Live Server"
+    body := "<h1>It Works!</h1><p>If you see this, your live server is configured correctly.</p>"
+    
+    // We call your notification package directly
+    err := notification.SendEmail(email, subject, body) // Sending to yourself
+    
+    if err != nil {
+        // ❌ IF IT FAILS: Print the EXACT error to the browser
+        c.JSON(500, gin.H{
+            "status": "failed",
+            "error": err.Error(),
+            "config_loaded": debugInfo,
+        })
+        return
+    }
+
+    // ✅ IF SUCCESS
+    c.JSON(200, gin.H{
+        "status": "success", 
+        "message": "Email sent successfully!",
+        "config": debugInfo,
+    })
+}
+
 
 // CreateBookingHandler handles POST requests to create a booking
 func CreateBookingHandler(c *gin.Context) {
@@ -51,7 +95,7 @@ func CreateBookingHandler(c *gin.Context) {
 			//baseURL := "https://playarena-backend-geg8.onrender.com" // change for local if needed
 			baseURL := "http://localhost:8080"
 
-			downloadLink := fmt.Sprintf("%s/api/v1/bookings/%d/ticket", baseURL, newBooking.ID)
+			downloadLink := fmt.Sprintf("%s/bookings/%d/ticket?download=true", baseURL, newBooking.ID)
 
 			subject := "Booking Confirmed! - SportGrid"
 
