@@ -92,8 +92,8 @@ func CreateBookingHandler(c *gin.Context) {
 		} else {
 
 			// ✅ Generate ticket download link
-			//baseURL := "https://playarena-backend-geg8.onrender.com" // change for local if needed
-			baseURL := "http://localhost:8080"
+			baseURL := "https://playarena-backend-geg8.onrender.com" // change for local if needed
+			//baseURL := "http://localhost:8080"
 
 			downloadLink := fmt.Sprintf("%s/bookings/%d/ticket?download=true", baseURL, newBooking.ID)
 
