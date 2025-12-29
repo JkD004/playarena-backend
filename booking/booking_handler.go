@@ -42,7 +42,7 @@ func TestLiveEmailHandler(c *gin.Context) {
     err := notification.SendEmail(email, subject, body) // Sending to yourself
     
     if err != nil {
-        // ❌ IF IT FAILS: Print the EXACT error to the browser
+        //  IF IT FAILS: Print the EXACT error to the browser
         c.JSON(500, gin.H{
             "status": "failed",
             "error": err.Error(),
