@@ -59,73 +59,73 @@ func TestLiveEmailHandler(c *gin.Context) {
 
 // CreateBookingHandler handles POST requests to create a booking
 func CreateBookingHandler(c *gin.Context) {
-    var req CreateBookingRequest
+	var req CreateBookingRequest
 
-    if err := c.ShouldBindJSON(&req); err != nil {
-        c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request data"})
-        return
-    }
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request data"})
+		return
+	}
 
-    userID := c.MustGet("userID").(int64)
+	userID := c.MustGet("userID").(int64)
 
-    newBooking, err := CreateNewBooking(&req, userID)
-    if err != nil {
-        c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-        return
-    }
+	newBooking, err := CreateNewBooking(&req, userID)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
 
-    // ---------------- EMAIL LOGIC ----------------
+	// ---------------- EMAIL LOGIC ----------------
 
-    // Fetch user details
-    userData, err := user.GetUserByID(userID)
-    if err != nil {
-        fmt.Println("Failed to fetch user:", err)
-    } else {
+	// Fetch user details
+	userData, err := user.GetUserByID(userID)
+	if err != nil {
+		fmt.Println("Failed to fetch user:", err)
+	} else {
 
-        // Fetch venue details
-        venueData, err := venue.GetVenueByID(newBooking.VenueID)
-        if err != nil {
-            fmt.Println("Failed to fetch venue:", err)
-        } else {
+		// Fetch venue details
+		venueData, err := venue.GetVenueByID(newBooking.VenueID)
+		if err != nil {
+			fmt.Println("Failed to fetch venue:", err)
+		} else {
 
-            // ================================
-            // 1. FORCE IST TIMEZONE (FIXED ZONE)
-            // ================================
-            // Instead of loading from OS (which might fail on Render), 
-            // we hardcode the 5hr 30min offset (19800 seconds).
-            secondsEastOfUTC := int((5 * 3600) + (30 * 60))
-            loc := time.FixedZone("IST", secondsEastOfUTC)
+			// ================================
+			// 1. FORCE IST TIMEZONE (FIXED ZONE)
+			// ================================
+			// Instead of loading from OS (which might fail on Render),
+			// we hardcode the 5hr 30min offset (19800 seconds).
+			secondsEastOfUTC := int((5 * 3600) + (30 * 60))
+			loc := time.FixedZone("IST", secondsEastOfUTC)
 
-            // ================================
-            // 2. CONVERT TIMES TO IST
-            // ================================
-            // Use the Scheduled Start Time for the "Date" field to ensure accuracy
-            startTime := newBooking.StartTime.In(loc)
-            endTime := newBooking.EndTime.In(loc)
+			// ================================
+			// 2. CONVERT TIMES TO IST
+			// ================================
+			// Use the Scheduled Start Time for the "Date" field to ensure accuracy
+			startTime := newBooking.StartTime.In(loc)
+			endTime := newBooking.EndTime.In(loc)
 
-            // ================================
-            // 3. FORMAT STRINGS
-            // ================================
-            dateStr := startTime.Format("02 Jan 2006")
-            startTimeStr := startTime.Format("03:04 PM")
-            endTimeStr := endTime.Format("03:04 PM")
+			// ================================
+			// 3. FORMAT STRINGS
+			// ================================
+			dateStr := startTime.Format("02 Jan 2006")
+			startTimeStr := startTime.Format("03:04 PM")
+			endTimeStr := endTime.Format("03:04 PM")
 
-            // ================================
-            // 4. DOWNLOAD LINK
-            // ================================
-            baseURL := "https://playarena-backend-geg8.onrender.com"
-            downloadLink := fmt.Sprintf(
-                "%s/api/v1/bookings/%d/ticket?download=true", // Added /api/v1 prefix just in case
-                baseURL,
-                newBooking.ID,
-            )
+			// ================================
+			// 4. DOWNLOAD LINK
+			// ================================
+			baseURL := "https://playarena-frontend.vercel.app"
+			downloadLink := fmt.Sprintf(
+				"%s/bookings/%d/ticket?download=true",
+				baseURL,
+				newBooking.ID,
+			)
 
-            // ================================
-            // 5. EMAIL CONTENT
-            // ================================
-            subject := "Booking Confirmed! - SportGrid"
+			// ================================
+			// 5. EMAIL CONTENT
+			// ================================
+			subject := "Booking Confirmed! - SportGrid"
 
-            body := fmt.Sprintf(`
+			body := fmt.Sprintf(`
 <h1>Booking Confirmed! ✅</h1>
 
 <p>Hi %s,</p>
@@ -151,30 +151,30 @@ Download Ticket
 <br>
 <p>Thank you for choosing <b>SportGrid</b>!</p>
 `,
-                userData.FirstName,
-                venueData.Name,
-                dateStr,
-                startTimeStr,
-                endTimeStr,
-                newBooking.TotalPrice,
-                downloadLink,
-                downloadLink,
-                downloadLink,
-            )
+				userData.FirstName,
+				venueData.Name,
+				dateStr,
+				startTimeStr,
+				endTimeStr,
+				newBooking.TotalPrice,
+				downloadLink,
+				downloadLink,
+				downloadLink,
+			)
 
-            // ================================
-            // 6. SEND EMAIL ASYNC
-            // ================================
-            go func() {
-                if err := notification.SendEmail(userData.Email, subject, body); err != nil {
-                    fmt.Println("Email send failed:", err)
-                }
-            }()
-        }
-    }
+			// ================================
+			// 6. SEND EMAIL ASYNC
+			// ================================
+			go func() {
+				if err := notification.SendEmail(userData.Email, subject, body); err != nil {
+					fmt.Println("Email send failed:", err)
+				}
+			}()
+		}
+	}
 
-    // ---------------- RESPONSE ----------------
-    c.JSON(http.StatusCreated, newBooking)
+	// ---------------- RESPONSE ----------------
+	c.JSON(http.StatusCreated, newBooking)
 }
 
 // DownloadTicketHandler generates and serves the PDF
