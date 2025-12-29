@@ -118,9 +118,9 @@ func CreateBookingHandler(c *gin.Context) {
 			// ================================
 			// 4. DOWNLOAD LINK
 			// ================================
-			//baseURL := "https://playarena-frontend.vercel.app"
-			
-			baseURL := "http://localhost:3000"
+			baseURL := "https://playarena-frontend.vercel.app"
+
+			//baseURL := "http://localhost:3000"
 
 
 			downloadLink := fmt.Sprintf(
